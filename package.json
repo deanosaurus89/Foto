@@ -1,0 +1,25 @@
+{
+  "name": "foto",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "test": "node --test",
+    "icons": "node scripts/make-icons.mjs"
+  },
+  "dependencies": {
+    "exifr": "^7.1.3",
+    "heic2any": "^0.0.4",
+    "piexifjs": "^1.0.6"
+  },
+  "devDependencies": {
+    "jpeg-js": "^0.4.4",
+    "vite": "^6.3.5"
+  }
+}

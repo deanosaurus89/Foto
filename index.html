@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f3f0ea" />
+    <meta name="description" content="Streifen und Collagen aus HEIC- und JPEG-Fotos. Läuft als App auf dem iPhone, Verarbeitung auf dem Gerät." />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Foto" />
+    <title>Foto</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <link
+      rel="apple-touch-startup-image"
+      media="screen and (device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"
+      href="./icons/splash-1290x2796.png"
+    />
+  </head>
+  <body>
+    <div id="app" class="app-shell"></div>
+    <noscript>Foto braucht JavaScript und läuft ohne Server. Bitte JavaScript für diese Seite erlauben.</noscript>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
