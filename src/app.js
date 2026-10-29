@@ -2,7 +2,21 @@ import { defaultCrop, panCrop, setCropScale } from "./lib/crop.js";
 import { drawImageCover, renderComposition, renderToCanvas } from "./lib/draw.js";
 import { canvasToJpegBlob } from "./lib/exif.js";
 import { MAX_PHOTOS, loadPhoto } from "./lib/images.js";
-import { hitTest, resolveCollageLayout, resolveCombineLayout } from "./lib/layout.js";
+import {
+  MAX_GRID,
+  cellsForPreset,
+  clearCell,
+  evenPackCol,
+  evenPackRow,
+  fitCellsToGrid,
+  growCell,
+  hitTest,
+  hitUnit,
+  placeCell,
+  resolveCollageLayout,
+  resolveCombineLayout,
+  shrinkCell,
+} from "./lib/layout.js";
 import {
   exportFilename,
   midpointDate,
@@ -13,6 +27,8 @@ import { registerServiceWorker } from "./pwa.js";
 import {
   editorHTML,
   homeHTML,
+  IOS_SAVE_HINT,
+  isIosDevice,
   layoutWarning,
   messagesHTML,
   metaOptionsHTML,
@@ -47,6 +63,8 @@ function createState() {
       preset: "2x2",
       rows: 2,
       cols: 2,
+      cells: null,
+      activeId: null,
       resolutionMode: "cell",
       cell: 1200,
       longSide: 2400,
@@ -78,12 +96,34 @@ function cssColor(value) {
   return /^#[0-9a-fA-F]{6}$/.test(value) ? value : "#ffffff";
 }
 
+function ensureCollageModel() {
+  const collage = state.collage;
+  if (Array.isArray(collage.cells)) return;
+  const made = cellsForPreset(collage.preset, collage.rows, collage.cols);
+  collage.rows = made.rows;
+  collage.cols = made.cols;
+  collage.cells = made.cells;
+  collage.activeId = made.cells[0]?.id ?? null;
+}
+
 function currentLayout() {
-  if (state.mode === "collage") return resolveCollageLayout(state.collage);
+  if (state.mode === "collage") {
+    ensureCollageModel();
+    return resolveCollageLayout(state.collage);
+  }
   return resolveCombineLayout(state.combine, state.photos.length);
 }
 
+function activeCollageCell() {
+  ensureCollageModel();
+  return state.collage.cells.find((cell) => cell.id === state.collage.activeId) || null;
+}
+
 function frameFor(index, layout) {
+  if (state.mode === "collage" && state.collage.activeId) {
+    const active = layout.tiles.find((item) => item.id === state.collage.activeId);
+    if (active?.w > 0 && active?.h > 0) return { w: active.w, h: active.h };
+  }
   const tile = layout.tiles.find((item) => item.imageIndex === index);
   if (tile) return { w: tile.w, h: tile.h };
   if (layout.tileW && layout.tileH) return { w: layout.tileW, h: layout.tileH };
@@ -253,7 +293,8 @@ function drawPreview() {
   canvas.width = Math.max(1, Math.round(cssW * dpr));
   canvas.height = Math.max(1, Math.round(cssH * dpr));
   const ctx = canvas.getContext("2d", { alpha: false });
-  renderComposition(ctx, scaleLayout(layout, scale * dpr), state.photos, cssColor(settings().bg), state.selected);
+  const mark = state.mode === "collage" ? state.collage.activeId : state.selected;
+  renderComposition(ctx, scaleLayout(layout, scale * dpr), state.photos, cssColor(settings().bg), mark);
   const label = document.getElementById("size-label");
   if (label) {
     const limited = layout.limited ? " · für Safari begrenzt" : "";
@@ -339,13 +380,15 @@ function refreshThumbs() {
   if (!host) return;
   const layout = currentLayout();
   const used = new Set(
-    layout.tiles.map((tile) => tile.imageIndex).filter((index) => index < state.photos.length),
+    layout.tiles
+      .map((tile) => tile.imageIndex)
+      .filter((index) => Number.isInteger(index) && index >= 0 && index < state.photos.length),
   );
   host.innerHTML = state.photos
     .map((photo, index) =>
       thumbHTML(photo, index, {
         selected: index === state.selected,
-        unused: state.photos.length > layout.tiles.length && !used.has(index),
+        unused: state.mode === "collage" ? !used.has(index) : state.photos.length > layout.tiles.length && !used.has(index),
       }),
     )
     .join("");
@@ -372,21 +415,57 @@ function syncSelection() {
   if (zoomValue) zoomValue.textContent = `${(photo?.crop.scale ?? 1).toFixed(2)}×`;
 }
 
+function syncCellTools() {
+  const el = document.getElementById("cell-label");
+  if (!el || state.mode !== "collage") return;
+  const cell = state.collage.cells?.find((item) => item.id === state.collage.activeId);
+  if (!cell) {
+    el.textContent = "Tippe ein Feld in der Vorschau an.";
+    return;
+  }
+  const photo = Number.isInteger(cell.imageIndex) ? state.photos[cell.imageIndex] : null;
+  const shape =
+    cell.pack === "row"
+      ? "ganze Zeile, gleichmäßig"
+      : cell.pack === "col"
+        ? "ganze Spalte, gleichmäßig"
+        : `${cell.colSpan}×${cell.rowSpan} im Raster`;
+  el.textContent = photo ? `${shape} · Foto ${cell.imageIndex + 1}` : `${shape} · kein Foto`;
+}
+
 function drawAll() {
   if (state.screen !== "edit") return;
   drawPreview();
   drawCropper();
   paintThumbs();
   syncSelection();
+  syncCellTools();
 }
 
 function releasePhotos(photos) {
   for (const photo of photos) photo.image?.close?.();
 }
 
+function remapCellsAfterRemove(index) {
+  if (!state.collage.cells) return;
+  for (const cell of state.collage.cells) {
+    if (cell.imageIndex === index) cell.imageIndex = null;
+    else if (Number.isInteger(cell.imageIndex) && cell.imageIndex > index) cell.imageIndex -= 1;
+  }
+}
+
+function remapCellsAfterMove(from, to) {
+  if (!state.collage.cells) return;
+  for (const cell of state.collage.cells) {
+    if (cell.imageIndex === from) cell.imageIndex = to;
+    else if (cell.imageIndex === to) cell.imageIndex = from;
+  }
+}
+
 function removePhoto(index) {
   const [removed] = state.photos.splice(index, 1);
   removed?.image?.close?.();
+  remapCellsAfterRemove(index);
   if (state.selected >= state.photos.length) state.selected = Math.max(0, state.photos.length - 1);
   markDirty();
   if (state.screen === "pick") render();
@@ -402,6 +481,7 @@ function movePhoto(index, dir) {
   if (next < 0 || next >= state.photos.length) return;
   const [item] = state.photos.splice(index, 1);
   state.photos.splice(next, 0, item);
+  remapCellsAfterMove(index, next);
   if (state.selected === index) state.selected = next;
   else if (state.selected === next) state.selected = index;
   markDirty();
@@ -535,6 +615,15 @@ function bindCropper(canvas) {
   canvas.addEventListener("pointercancel", end);
 }
 
+function focusCollageTile(tile) {
+  state.collage.activeId = tile.id;
+  if (state.photos[tile.imageIndex]) state.selected = tile.imageIndex;
+  syncSelection();
+  drawPreview();
+  drawCropper();
+  syncCellTools();
+}
+
 function onPreviewPick(event) {
   const canvas = event.currentTarget;
   const layout = currentLayout();
@@ -542,6 +631,30 @@ function onPreviewPick(event) {
   const x = ((event.clientX - rect.left) / rect.width) * layout.width;
   const y = ((event.clientY - rect.top) / rect.height) * layout.height;
   const tile = hitTest(layout, x, y);
+  if (state.mode === "collage") {
+    if (tile) {
+      focusCollageTile(tile);
+      return;
+    }
+    const unit = hitUnit(layout, x, y);
+    if (!unit) return;
+    const placed = placeCell(
+      state.collage.cells,
+      unit.col,
+      unit.row,
+      state.photos[state.selected] ? state.selected : 0,
+      state.collage.rows,
+      state.collage.cols,
+    );
+    if (!placed.ok) {
+      syncCellTools();
+      return;
+    }
+    const created = state.collage.cells.find((cell) => cell.id === placed.id);
+    if (created) focusCollageTile({ id: created.id, imageIndex: created.imageIndex });
+    markDirty();
+    return;
+  }
   if (!tile || !state.photos[tile.imageIndex]) return;
   state.selected = tile.imageIndex;
   syncSelection();
@@ -554,6 +667,20 @@ function wireEditor() {
   if (cropper) bindCropper(cropper);
   const preview = document.getElementById("preview");
   if (preview) preview.addEventListener("pointerdown", onPreviewPick);
+  const hint = document.getElementById("save-hint");
+  if (hint && isIosDevice()) {
+    hint.hidden = false;
+    hint.textContent = IOS_SAVE_HINT;
+  }
+  const shareButton = document.getElementById("share");
+  if (shareButton && !isIosDevice()) shareButton.textContent = "Teilen";
+  if (state.mode === "collage") {
+    ensureCollageModel();
+    const rowsLabel = document.getElementById("rows-value");
+    const colsLabel = document.getElementById("cols-value");
+    if (rowsLabel) rowsLabel.textContent = String(state.collage.rows);
+    if (colsLabel) colsLabel.textContent = String(state.collage.cols);
+  }
   syncMetaOptions();
   paintMessages();
   refreshThumbs();
@@ -569,18 +696,45 @@ function triggerDownload(file) {
   link.remove();
 }
 
-function showResult(file) {
+function showResult(file, { shared = false } = {}) {
   const host = document.getElementById("result");
   if (!host) return;
   host.hidden = false;
   host.innerHTML = resultHTML({
     name: file.name,
     exifError: file.exifError,
-    ios: /iPhone|iPad|iPod/i.test(navigator.userAgent || ""),
+    ios: isIosDevice(),
+    shared,
   });
   const img = document.getElementById("result-img");
   if (img) img.src = file.url;
   host.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+function sharePayload(file) {
+  return new File([file.blob], file.name, { type: "image/jpeg" });
+}
+
+function canShareFile(payload) {
+  if (!navigator.share) return false;
+  if (typeof navigator.canShare !== "function") return true;
+  try {
+    return navigator.canShare({ files: [payload] });
+  } catch {
+    return false;
+  }
+}
+
+async function sharePrepared(file) {
+  const payload = sharePayload(file);
+  if (!canShareFile(payload)) return "unavailable";
+  try {
+    await navigator.share({ files: [payload], title: "Foto" });
+    return "shared";
+  } catch (err) {
+    if (err?.name === "AbortError") return "abort";
+    return "unavailable";
+  }
 }
 
 async function composeExport() {
@@ -623,37 +777,55 @@ async function composeExport() {
   }
 }
 
+function exportFailed(err) {
+  state.messages.push(
+    err?.message === "toBlob"
+      ? "Das Bild ist zu groß für diesen Browser. Bitte die Auflösung verringern."
+      : "Export ist fehlgeschlagen. Bitte die Auflösung verringern und es erneut versuchen.",
+  );
+  paintMessages();
+}
+
 async function onSave() {
   try {
     const file = await composeExport();
+    if (isIosDevice()) {
+      const outcome = await sharePrepared(file);
+      showResult(file, { shared: outcome === "shared" });
+      if (outcome === "unavailable") triggerDownload(file);
+      return;
+    }
     triggerDownload(file);
-    showResult(file);
+    showResult(file, { shared: false });
   } catch (err) {
-    state.messages.push(
-      err?.message === "toBlob"
-        ? "Das Bild ist zu groß für diesen Browser. Bitte die Auflösung verringern."
-        : "Export ist fehlgeschlagen. Bitte die Auflösung verringern und es erneut versuchen.",
-    );
-    paintMessages();
+    exportFailed(err);
   }
 }
 
 async function onShare() {
   try {
     const file = state.lastExport ?? (await composeExport());
-    showResult(file);
-    const shareFile = new File([file.blob], file.name, { type: "image/jpeg" });
-    if (navigator.canShare?.({ files: [shareFile] })) {
-      await navigator.share({ files: [shareFile], title: "Foto" });
-      return;
+    const outcome = await sharePrepared(file);
+    showResult(file, { shared: outcome === "shared" });
+    if (outcome === "unavailable") {
+      state.messages.push("Teilen ist in diesem Browser nicht verfügbar. Die Datei wird geladen.");
+      paintMessages();
+      triggerDownload(file);
     }
-    state.messages.push("Teilen ist in diesem Browser nicht verfügbar. Die Datei wird heruntergeladen.");
-    paintMessages();
-    triggerDownload(file);
   } catch (err) {
     if (err?.name === "AbortError") return;
     state.messages.push("Teilen ist fehlgeschlagen.");
     paintMessages();
+  }
+}
+
+async function onDownload() {
+  try {
+    const file = state.lastExport ?? (await composeExport());
+    showResult(file, { shared: false });
+    triggerDownload(file);
+  } catch (err) {
+    exportFailed(err);
   }
 }
 
@@ -703,6 +875,13 @@ function onClick(event) {
   }
   if (action === "select") {
     state.selected = Number(button.dataset.index);
+    if (state.mode === "collage") {
+      const cell = activeCollageCell();
+      if (cell) cell.imageIndex = state.selected;
+      markDirty();
+      drawAll();
+      return;
+    }
     syncSelection();
     drawPreview();
     drawCropper();
@@ -745,23 +924,85 @@ function onClick(event) {
     return;
   }
   if (action === "preset") {
+    const made = cellsForPreset(button.dataset.value, state.collage.rows, state.collage.cols);
     state.collage.preset = button.dataset.value;
+    state.collage.rows = made.rows;
+    state.collage.cols = made.cols;
+    state.collage.cells = made.cells;
+    state.collage.activeId = made.cells[0]?.id ?? null;
+    if (state.photos[made.cells[0]?.imageIndex]) state.selected = made.cells[0].imageIndex;
+    const rowsLabel = document.getElementById("rows-value");
+    const colsLabel = document.getElementById("cols-value");
+    if (rowsLabel) rowsLabel.textContent = String(made.rows);
+    if (colsLabel) colsLabel.textContent = String(made.cols);
     press("preset", state.collage.preset);
-    const custom = document.getElementById("custom-grid");
-    if (custom) custom.hidden = state.collage.preset !== "custom";
     markDirty();
     refreshThumbs();
     drawAll();
     return;
   }
   if (action === "rows-inc" || action === "rows-dec" || action === "cols-inc" || action === "cols-dec") {
+    ensureCollageModel();
     const key = action.startsWith("rows") ? "rows" : "cols";
     const delta = action.endsWith("inc") ? 1 : -1;
-    state.collage[key] = Math.min(4, Math.max(1, state.collage[key] + delta));
+    state.collage[key] = Math.min(MAX_GRID, Math.max(1, state.collage[key] + delta));
+    state.collage.preset = "custom";
+    state.collage.cells = fitCellsToGrid(state.collage.cells, state.collage.rows, state.collage.cols);
+    if (!state.collage.cells.some((cell) => cell.id === state.collage.activeId)) {
+      state.collage.activeId = state.collage.cells[0]?.id ?? null;
+    }
     const label = document.getElementById(key === "rows" ? "rows-value" : "cols-value");
     if (label) label.textContent = String(state.collage[key]);
+    press("preset", "custom");
     markDirty();
     refreshThumbs();
+    drawAll();
+    return;
+  }
+  if (
+    action === "span-wider" ||
+    action === "span-narrower" ||
+    action === "span-taller" ||
+    action === "span-shorter" ||
+    action === "even-row" ||
+    action === "even-col" ||
+    action === "clear-cell"
+  ) {
+    ensureCollageModel();
+    const cell = activeCollageCell();
+    if (!cell) {
+      syncCellTools();
+      return;
+    }
+    let result = { ok: true };
+    if (action === "clear-cell") {
+      clearCell(state.collage.cells, cell.id);
+      state.collage.activeId = state.collage.cells[0]?.id ?? null;
+    } else if (action === "even-row") {
+      if (cell.pack === "col") result = { ok: false, reason: "blocked" };
+      else result = evenPackRow(state.collage.cells, cell.row, state.collage.cols, state.collage.rows);
+    } else if (action === "even-col") {
+      if (cell.pack === "row") result = { ok: false, reason: "blocked" };
+      else result = evenPackCol(state.collage.cells, cell.col, state.collage.cols, state.collage.rows);
+    } else {
+      const axis = action.includes("wide") || action.includes("narrow") ? "col" : "row";
+      const change = action === "span-wider" || action === "span-taller" ? growCell : shrinkCell;
+      result = change(state.collage.cells, cell.id, axis, state.collage.rows, state.collage.cols);
+    }
+    if (!result.ok) {
+      const notes = {
+        edge: "Das Feld liegt schon am Rand.",
+        overlap: "Die Nachbarfelder sind belegt. Leere oder verkleinere sie zuerst.",
+        blocked: "Hier kreuzt schon ein großes Feld die Zeile oder Spalte. Verkleinere es zuerst.",
+        empty: "In dieser Zeile oder Spalte liegt kein Feld.",
+        crowded: "Mehr Felder als Rasterplätze.",
+        min: "Kleiner geht das Feld nicht.",
+      };
+      const label = document.getElementById("cell-label");
+      if (label) label.textContent = notes[result.reason] || "Das geht an dieser Stelle nicht.";
+      return;
+    }
+    markDirty();
     drawAll();
     return;
   }
@@ -782,6 +1023,10 @@ function onClick(event) {
   }
   if (action === "export") {
     onSave();
+    return;
+  }
+  if (action === "download") {
+    onDownload();
     return;
   }
   if (action === "share") onShare();

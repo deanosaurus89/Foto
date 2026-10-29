@@ -7,9 +7,9 @@ Alles läuft im Browser. Es gibt keinen Server, und die Bilder werden nicht hoch
 ## Funktionen
 
 - **Streifen:** 2–10 Fotos nebeneinander oder untereinander. Unterschiedliche Auflösungen werden auf dieselbe Kachelgröße gebracht (Kantenlänge, Breite oder Höhe des Ergebnisses, dazu ein Kachelformat wie 1:1 oder 4:5). Optionaler Rahmen, symmetrisch als Vorgabe.
-- **Collage:** Vorlagen (2×2, 3×2, 2×3, 3×3, 1+2, 2+1, 1 über 2, 2 über 1) oder ein eigenes Raster mit Zeilen und Spalten. Rahmenbreite getrennt oder symmetrisch.
+- **Collage:** Vorlagen (2×2, 3×2, 2×3, 3×3, 1+2, 2+1, 1 über 2, 2 über 1) oder ein eigenes Raster mit 1–10 Zeilen und 1–10 Spalten. Ein Feld kann Nachbarfelder einnehmen, zum Beispiel ein 2×2-Block in einem 3×3-Raster; die restliche Spalte und Zeile behalten gleiche Abstände. Eine Zeile oder Spalte mit weniger Fotos lässt sich gleichmäßig über die ganze Breite bzw. Höhe verteilen.
 - **Zuschnitt in der Kachel:** Ziehen, Zwei-Finger-Zoom oder Regler. Vorher in der Fotos-App beschneiden ist nicht nötig.
-- **Export:** JPEG mit EXIF. Aufnahmedatum als Mittelwert, von einem gewählten Foto oder als eigene Zeit. Ort standardmäßig vom ersten Foto mit GPS; alternativ der häufigste Ort (auf etwa 10 m gerundet), ein bestimmtes Foto oder kein Ort. Auf dem iPhone kann die Datei über die Teilen-Taste gesichert werden.
+- **Export:** JPEG mit EXIF. Aufnahmedatum als Mittelwert, von einem gewählten Foto oder als eigene Zeit. Ort standardmäßig vom ersten Foto mit GPS; alternativ der häufigste Ort (auf etwa 10 m gerundet), ein bestimmtes Foto oder kein Ort.
 
 HEIC/HEIF wird gelesen, wenn der Browser es kann (Safari auf dem iPhone). Gelingt das nicht, erscheint ein Hinweis, das Foto in der Fotos-App als JPEG zu sichern. Schreiben von HEIC im Browser ist unzuverlässig, deshalb ist JPEG das Exportformat.
 
@@ -59,7 +59,7 @@ Zielgerät ist das iPhone 15 Pro Max in Safari, Hochformat.
 
 Danach startet Foto ohne Browser-Leiste. Ein Hinweis auf der Startseite erscheint auf dem iPhone, solange die Seite noch in Safari läuft. Manifest, Service Worker (Offline-Hülle nach dem ersten Laden), Apple-Touch-Icon und ein Startbild für 430×932 pt sind enthalten.
 
-Beim Sichern auf dem iPhone ist **Teilen → Bild sichern** zuverlässiger als der reine Download. Der Download öffnet dort oft nur eine Vorschau.
+Safari kann die Fotos-App nicht lautlos beschreiben. **In Fotos sichern** öffnet das Teilen-Menü; dort **Bild sichern** tippen. Ein reiner Download öffnet auf dem iPhone oft nur eine Vorschau. Die JPEG-Datei enthält Datum und Ort wie oben gewählt.
 
 ## Hinweise
 

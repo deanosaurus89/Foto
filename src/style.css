@@ -500,6 +500,15 @@ input[type="color"] {
   border-radius: 50%;
 }
 
+.cell-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.cell-actions .btn { margin-top: 0; }
+
 .action-bar {
   position: sticky;
   bottom: 0;
@@ -509,6 +518,11 @@ input[type="color"] {
   padding: 10px 16px calc(10px + var(--safe-bot));
   background: rgba(243, 240, 234, 0.94);
   backdrop-filter: blur(16px);
+}
+
+.save-hint {
+  grid-column: 1 / -1;
+  margin: 0;
 }
 
 .action-bar .btn { margin-top: 0; }
