@@ -44,9 +44,32 @@ export function renderComposition(ctx, layout, photos, bg, selected = -1, radius
     ctx.restore();
     if (tileSelected(tile, selected)) {
       ctx.save();
-      ctx.strokeStyle = "#1f1a17";
-      ctx.lineWidth = Math.max(2, Math.round(Math.min(tile.w, tile.h) * 0.012));
-      traceRoundRect(ctx, tile.x + 1, tile.y + 1, tile.w - 2, tile.h - 2, Math.max(0, radius - 1));
+      ctx.fillStyle = "rgba(20, 92, 255, 0.38)";
+      traceRoundRect(ctx, tile.x, tile.y, tile.w, tile.h, radius);
+      ctx.fill();
+      const outer = Math.max(10, Math.round(Math.min(tile.w, tile.h) * 0.07));
+      ctx.lineWidth = outer;
+      ctx.strokeStyle = "#ffffff";
+      traceRoundRect(ctx, tile.x + outer / 2, tile.y + outer / 2, tile.w - outer, tile.h - outer, Math.max(0, radius - outer / 2));
+      ctx.stroke();
+      ctx.lineWidth = Math.max(6, Math.round(outer * 0.62));
+      ctx.strokeStyle = "#145cff";
+      ctx.stroke();
+      const badge = Math.max(22, Math.round(Math.min(tile.w, tile.h) * 0.18));
+      const bx = tile.x + badge * 0.55;
+      const by = tile.y + badge * 0.55;
+      ctx.beginPath();
+      ctx.fillStyle = "#145cff";
+      ctx.arc(bx, by, badge * 0.46, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.lineWidth = Math.max(3, badge * 0.12);
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.moveTo(bx - badge * 0.18, by);
+      ctx.lineTo(bx - badge * 0.04, by + badge * 0.16);
+      ctx.lineTo(bx + badge * 0.2, by - badge * 0.16);
       ctx.stroke();
       ctx.restore();
     }

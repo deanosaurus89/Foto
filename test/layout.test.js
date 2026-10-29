@@ -339,3 +339,53 @@ test("dropping a photo swaps with the cell it lands on", () => {
   assert.equal(made.cells[1].imageIndex, 0);
   assert.equal(made.cells[0].imageIndex, 1);
 });
+
+test("a merged block slides onto the cells it covers and swaps with another block", () => {
+  const made = cellsForPreset("custom", 2, 2);
+  const top = made.cells.filter((cell) => cell.row === 0).map((cell) => cell.id);
+  const merged = mergeCells(made.cells, top);
+  const blockId = merged.id;
+  const moved = relocateBlock(made.cells, blockId, 0, 1, 2, 2);
+  assert.equal(moved.ok, true);
+  const block = made.cells.find((cell) => cell.id === blockId);
+  assert.equal(block.row, 1);
+  assert.equal(block.colSpan, 2);
+  const parked = made.cells.filter((cell) => cell.id !== blockId);
+  assert.equal(parked.length, 2);
+  assert.ok(parked.every((cell) => cell.row === 0 && cell.colSpan === 1));
+
+  const again = cellsForPreset("custom", 2, 2);
+  const upper = mergeCells(
+    again.cells,
+    again.cells.filter((cell) => cell.row === 0).map((cell) => cell.id),
+  );
+  const lower = mergeCells(
+    again.cells,
+    again.cells.filter((cell) => cell.row === 1).map((cell) => cell.id),
+  );
+  const upperImage = again.cells.find((cell) => cell.id === upper.id).imageIndex;
+  const swapped = relocateBlock(again.cells, upper.id, 0, 1, 2, 2);
+  assert.equal(swapped.kind, "swap");
+  assert.equal(again.cells.find((cell) => cell.id === upper.id).row, 1);
+  assert.equal(again.cells.find((cell) => cell.id === lower.id).row, 0);
+  assert.equal(again.cells.find((cell) => cell.id === upper.id).imageIndex, upperImage);
+});
+
+test("strip long side is the finished image, not one tile", () => {
+  const layout = resolveCombineLayout(
+    {
+      direction: "horizontal",
+      resolutionMode: "long",
+      resolution: 900,
+      aspect: 1,
+      gap: 0,
+      margin: 0,
+      symmetric: true,
+    },
+    3,
+  );
+  assert.equal(layout.width, 900);
+  assert.equal(layout.height, 300);
+  assert.equal(layout.tileW, 300);
+  assert.equal(tilesEqual(layout), true);
+});

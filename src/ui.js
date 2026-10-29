@@ -94,21 +94,7 @@ export function editorHTML(state) {
   const collage = state.mode === "collage";
   const settings = collage ? state.collage : state.combine;
   const title = collage ? "Collage" : "Streifen";
-  const resMode = settings.resolutionMode;
-  const resValue = collage
-    ? resMode === "long"
-      ? settings.longSide
-      : settings.cell
-    : settings.resolution;
-  const resLabel = collage
-    ? resMode === "long"
-      ? "Lange Seite"
-      : "Kachelkante"
-    : resMode === "width"
-      ? "Breite des Ergebnisses"
-      : resMode === "height"
-        ? "Höhe des Ergebnisses"
-        : "Kantenlänge der Kachel";
+  const resValue = collage ? settings.longSide || 3072 : settings.resolution;
 
   const structureBlock = collage
     ? `<section class="panel" id="layout-controls">
@@ -165,40 +151,14 @@ export function editorHTML(state) {
         )}
       </section>`;
 
-  const resolutionBlock = collage
-    ? `<section class="panel">
-        <h2>Auflösung</h2>
-        ${segmented(
-          "resmode",
-          [
-            { value: "cell", label: "Kachelkante" },
-            { value: "long", label: "Lange Seite" },
-          ],
-          resMode,
-        )}
-        <label class="field" for="resolution"><span id="res-label">${resLabel}</span>
+  const resolutionBlock = `<section class="panel">
+        <h2>Ausgabe</h2>
+        <p class="hint">Lange Seite des fertigen Bildes. Die Kacheln teilen sich diese Größe.</p>
+        <label class="field" for="resolution"><span id="res-label">Lange Seite</span>
           <input id="resolution" inputmode="numeric" type="number" min="256" max="8192" value="${resValue}">
         </label>
         <div class="chips">
-          ${[800, 1200, 1600, 2048].map((n) => `<button type="button" class="chip" data-action="res-chip" data-value="${n}">${n}</button>`).join("")}
-        </div>
-      </section>`
-    : `<section class="panel">
-        <h2>Auflösung</h2>
-        ${segmented(
-          "resmode",
-          [
-            { value: "edge", label: "Kantenlänge" },
-            { value: "width", label: "Breite" },
-            { value: "height", label: "Höhe" },
-          ],
-          resMode,
-        )}
-        <label class="field" for="resolution"><span id="res-label">${resLabel}</span>
-          <input id="resolution" inputmode="numeric" type="number" min="256" max="8192" value="${resValue}">
-        </label>
-        <div class="chips">
-          ${[1080, 1600, 2048, 3024].map((n) => `<button type="button" class="chip" data-action="res-chip" data-value="${n}">${n}</button>`).join("")}
+          ${[1920, 2560, 3072, 4032].map((n) => `<button type="button" class="chip" data-action="res-chip" data-value="${n}">${n}</button>`).join("")}
         </div>
       </section>`;
 

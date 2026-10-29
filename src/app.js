@@ -16,6 +16,7 @@ import {
   resolveCollageLayout,
   resolveCombineLayout,
   splitCell,
+  swapImages,
 } from "./lib/layout.js";
 import {
   exportFilename,
@@ -52,8 +53,8 @@ function createState() {
     selected: 0,
     combine: {
       direction: "horizontal",
-      resolutionMode: "edge",
-      resolution: 1600,
+      resolutionMode: "long",
+      resolution: 3072,
       aspect: 1,
       gap: 24,
       margin: 24,
@@ -69,9 +70,9 @@ function createState() {
       selection: [],
       mixed: false,
       radius: 0,
-      resolutionMode: "cell",
+      resolutionMode: "long",
       cell: 1200,
-      longSide: 2400,
+      longSide: 3072,
       gap: 24,
       margin: 24,
       symmetric: true,
@@ -215,13 +216,7 @@ function syncFrameLabels() {
 }
 
 function resolutionLabel() {
-  const current = settings();
-  if (state.mode === "collage") {
-    return current.resolutionMode === "long" ? "Lange Seite" : "Kachelkante";
-  }
-  if (current.resolutionMode === "width") return "Breite des Ergebnisses";
-  if (current.resolutionMode === "height") return "Höhe des Ergebnisses";
-  return "Kantenlänge der Kachel";
+  return "Lange Seite";
 }
 
 function syncMetaOptions() {
@@ -327,7 +322,7 @@ function drawPreview() {
     const limited = layout.limited ? " · für Safari begrenzt" : "";
     label.textContent =
       state.mode === "combine"
-        ? `Kachel ${layout.tileW} × ${layout.tileH} px · Ausgabe ${layout.width} × ${layout.height} px${limited}`
+        ? `Ausgabe ${layout.width} × ${layout.height} px${limited}`
         : `${layout.tiles.length} Felder · Ausgabe ${layout.width} × ${layout.height} px${limited}`;
   }
   const warning = document.getElementById("layout-warning");
@@ -573,9 +568,10 @@ function applyResolution(value) {
   const clamped = Math.min(8192, Math.max(256, n));
   const current = settings();
   if (state.mode === "collage") {
-    if (current.resolutionMode === "long") current.longSide = clamped;
-    else current.cell = clamped;
+    current.resolutionMode = "long";
+    current.longSide = clamped;
   } else {
+    current.resolutionMode = "long";
     current.resolution = clamped;
   }
   const input = document.getElementById("resolution");
@@ -769,8 +765,8 @@ function bindBoard(canvas) {
       tile,
       cell,
       dragged: false,
-      dcol: cell && unit ? unit.col - cell.col : 0,
-      drow: cell && unit ? unit.row - cell.row : 0,
+      dcol: cell && unit ? Math.min(cell.colSpan - 1, Math.max(0, unit.col - cell.col)) : 0,
+      drow: cell && unit ? Math.min(cell.rowSpan - 1, Math.max(0, unit.row - cell.row)) : 0,
     };
   });
   canvas.addEventListener(
@@ -808,7 +804,7 @@ function bindBoard(canvas) {
       drawAll();
       return;
     }
-    const result = relocateBlock(
+    let result = relocateBlock(
       state.collage.cells,
       current.cell.id,
       drop.col - current.dcol,
@@ -816,6 +812,12 @@ function bindBoard(canvas) {
       state.collage.rows,
       state.collage.cols,
     );
+    if (!result.ok && point) {
+      const tile = hitTest(point.layout, point.x, point.y);
+      if (tile && tile.id !== current.cell.id) {
+        result = swapImages(state.collage.cells, current.cell.id, tile.id);
+      }
+    }
     applyCollageChange(result.ok ? { ...result, id: current.cell.id } : result);
   };
   canvas.addEventListener("pointerup", end);

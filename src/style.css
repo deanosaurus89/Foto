@@ -570,6 +570,13 @@ input[type="color"] {
 
 .cell-actions .btn { margin-top: 0; }
 
+#layout-controls button,
+.panel button,
+.panel label {
+  scroll-margin-top: 72px;
+  scroll-margin-bottom: 110px;
+}
+
 .action-bar {
   position: sticky;
   bottom: 0;
