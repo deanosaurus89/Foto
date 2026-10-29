@@ -1,9 +1,11 @@
 /** Integer layouts for the equal-tile strip and the collage grid. */
 
-export const MAX_EDGE = 8192;
-export const MAX_PIXELS = 24_000_000;
+// Print ceiling: short side up to about 6000 px (for example 9000×6000 or 6000×6000).
+// Drugstore paper sizes (Einpassen / Flächendeckend) are a separate step, not this cap.
+export const MAX_EDGE = 12000;
+export const MAX_PIXELS = 72_000_000;
 export const MIN_RESOLUTION = 256;
-export const MAX_RESOLUTION = 8192;
+export const MAX_RESOLUTION = 12000;
 export const MAX_GRID = 10;
 
 export const PRESETS = [

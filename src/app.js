@@ -4,6 +4,7 @@ import { canvasToJpegBlob } from "./lib/exif.js";
 import { MAX_PHOTOS, loadPhoto } from "./lib/images.js";
 import {
   MAX_GRID,
+  MAX_RESOLUTION,
   addGridLine,
   cellsForPreset,
   fitCellsToGrid,
@@ -108,7 +109,7 @@ function ensureCollageModel() {
     collage.rows = made.rows;
     collage.cols = made.cols;
     collage.cells = made.cells;
-    collage.activeId = made.cells[0]?.id ?? null;
+    collage.activeId = null;
     collage.selection = [];
     collage.mixed = false;
   }
@@ -301,11 +302,7 @@ function drawPreview() {
   const ctx = canvas.getContext("2d", { alpha: false });
   const radius = state.mode === "collage" ? (state.collage.radius || 0) * scale * dpr : 0;
   const mark =
-    state.mode === "collage"
-      ? state.collage.selection?.length
-        ? state.collage.selection
-        : state.collage.activeId
-      : state.selected;
+    state.mode === "collage" ? (state.collage.selection?.length ? state.collage.selection : -1) : state.selected;
   renderComposition(ctx, scaleLayout(layout, scale * dpr), state.photos, cssColor(settings().bg), mark, radius);
   if (state.dragHover && state.mode === "collage") {
     const hoverScale = scale * dpr;
@@ -319,7 +316,7 @@ function drawPreview() {
   canvas.style.touchAction = state.mode === "collage" ? "none" : "manipulation";
   const label = document.getElementById("size-label");
   if (label) {
-    const limited = layout.limited ? " · für Safari begrenzt" : "";
+    const limited = layout.limited ? " · für den Druck etwas verkleinert" : "";
     label.textContent =
       state.mode === "combine"
         ? `Ausgabe ${layout.width} × ${layout.height} px${limited}`
@@ -565,7 +562,7 @@ async function addFiles(fileList) {
 function applyResolution(value) {
   const n = Math.round(Number(value));
   if (!Number.isFinite(n)) return;
-  const clamped = Math.min(8192, Math.max(256, n));
+  const clamped = Math.min(MAX_RESOLUTION, Math.max(256, n));
   const current = settings();
   if (state.mode === "collage") {
     current.resolutionMode = "long";
@@ -728,6 +725,12 @@ function applyCollageChange(result) {
   drawAll();
 }
 
+function clearCollageSelection() {
+  state.collage.selection = [];
+  state.collage.activeId = null;
+  drawAll();
+}
+
 function toggleCollageSelection(tile) {
   const id = tile.id;
   const list = state.collage.selection || [];
@@ -794,7 +797,9 @@ function bindBoard(canvas) {
     gesture = null;
     hideGhost();
     if (!current.dragged) {
-      if (current.tile) toggleCollageSelection(current.tile);
+      const occupied = current.tile && state.photos[current.tile.imageIndex];
+      if (occupied) toggleCollageSelection(current.tile);
+      else clearCollageSelection();
       return;
     }
     suppressClickUntil = Date.now() + 300;
@@ -824,12 +829,14 @@ function bindBoard(canvas) {
   canvas.addEventListener("pointercancel", end);
 }
 
+let filmGesture = null;
+let filmWindowBound = false;
+
 function bindFilmstrip(host) {
-  let gesture = null;
   host.addEventListener("pointerdown", (event) => {
     const button = event.target.closest("[data-drag='photo']");
-    if (!button) return;
-    gesture = {
+    if (!button || filmGesture) return;
+    filmGesture = {
       pointerId: event.pointerId,
       index: Number(button.dataset.index),
       x: event.clientX,
@@ -838,44 +845,46 @@ function bindFilmstrip(host) {
       scroll: false,
     };
   });
-  host.addEventListener(
-    "pointermove",
-    (event) => {
-      if (!gesture || event.pointerId !== gesture.pointerId) return;
-      const dx = event.clientX - gesture.x;
-      const dy = event.clientY - gesture.y;
-      if (!gesture.dragged && !gesture.scroll) {
-        if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) {
-          gesture.scroll = true;
-          return;
-        }
-        if (Math.abs(dy) > 12 || Math.hypot(dx, dy) > 16) {
-          gesture.dragged = true;
-          host.setPointerCapture(event.pointerId);
-        }
+  if (filmWindowBound) return;
+  filmWindowBound = true;
+  const move = (event) => {
+    if (!filmGesture || event.pointerId !== filmGesture.pointerId) return;
+    const dx = event.clientX - filmGesture.x;
+    const dy = event.clientY - filmGesture.y;
+    if (!filmGesture.dragged && !filmGesture.scroll) {
+      if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) {
+        filmGesture.scroll = true;
+        return;
       }
-      if (!gesture.dragged) return;
-      event.preventDefault();
-      showGhost(gesture.index, event.clientX, event.clientY);
-    },
-    { passive: false },
-  );
+      if (Math.abs(dy) > 12 || Math.hypot(dx, dy) > 16) {
+        filmGesture.dragged = true;
+        state.collage.selection = [];
+        state.collage.activeId = null;
+      }
+    }
+    if (!filmGesture.dragged) return;
+    event.preventDefault();
+    showGhost(filmGesture.index, event.clientX, event.clientY);
+  };
   const end = (event) => {
-    if (!gesture || event.pointerId !== gesture.pointerId) return;
-    const current = gesture;
-    gesture = null;
+    if (!filmGesture || event.pointerId !== filmGesture.pointerId) return;
+    const current = filmGesture;
+    filmGesture = null;
     hideGhost();
     if (!current.dragged) return;
     suppressClickUntil = Date.now() + 300;
     const point = layoutPoint(event.clientX, event.clientY);
+    const tile = point ? hitTest(point.layout, point.x, point.y) : null;
     const drop = point ? nearestUnit(point.layout, point.x, point.y) : null;
-    if (!drop) return;
-    applyCollageChange(
-      placePhoto(state.collage.cells, current.index, drop.col, drop.row, state.collage.cols, state.collage.rows),
-    );
+    const col = Number.isInteger(tile?.col) ? tile.col : drop?.col;
+    const row = Number.isInteger(tile?.row) ? tile.row : drop?.row;
+    if (!Number.isInteger(col) || !Number.isInteger(row)) return;
+    clearCollageSelection();
+    applyCollageChange(placePhoto(state.collage.cells, current.index, col, row, state.collage.cols, state.collage.rows));
   };
-  host.addEventListener("pointerup", end);
-  host.addEventListener("pointercancel", end);
+  window.addEventListener("pointermove", move, { passive: false });
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", end);
 }
 
 function onPreviewPick(event) {
@@ -1303,7 +1312,7 @@ function onInput(event) {
   }
   if (target.id === "resolution") {
     const n = Number(target.value);
-    if (target.value === "" || !Number.isFinite(n) || n < 256 || n > 8192) return;
+    if (target.value === "" || !Number.isFinite(n) || n < 256 || n > MAX_RESOLUTION) return;
     applyResolution(n);
     return;
   }
