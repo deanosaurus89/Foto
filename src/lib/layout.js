@@ -496,6 +496,47 @@ export function buildCollageLayout({ presetId, rows, cols, cell, gap, margin, ce
   };
 }
 
+function tilesForLongSide({ count, direction, gap, margin, resolution, aspect }) {
+  let lo = 1;
+  let hi = Math.max(1, resolution);
+  let best = 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const sized = combineTileSize({
+      count,
+      direction,
+      gap,
+      margin,
+      resolutionMode: "edge",
+      resolution: mid,
+      aspect,
+    });
+    const layout = buildCombineLayout({
+      count,
+      direction,
+      tileW: sized.tileW,
+      tileH: sized.tileH,
+      gap,
+      margin,
+    });
+    if (Math.max(layout.width, layout.height) <= resolution) {
+      best = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return combineTileSize({
+    count,
+    direction,
+    gap,
+    margin,
+    resolutionMode: "edge",
+    resolution: best,
+    aspect,
+  });
+}
+
 function applyLimit(make) {
   let factor = 1;
   let layout = make(1);
@@ -524,15 +565,25 @@ export function resolveCombineLayout(settings, count) {
   if (safeCount === 0) {
     return { width: 1, height: 1, tiles: [], tileW: 1, tileH: 1, limited: false };
   }
-  const base = combineTileSize({
-    count: safeCount,
-    direction,
-    gap,
-    margin,
-    resolutionMode,
-    resolution,
-    aspect,
-  });
+  const base =
+    resolutionMode === "long"
+      ? tilesForLongSide({
+          count: safeCount,
+          direction,
+          gap,
+          margin,
+          resolution,
+          aspect,
+        })
+      : combineTileSize({
+          count: safeCount,
+          direction,
+          gap,
+          margin,
+          resolutionMode,
+          resolution,
+          aspect,
+        });
   return applyLimit((factor) =>
     buildCombineLayout({
       count: safeCount,
@@ -626,6 +677,27 @@ export function randomFill(cells, photoCount, random = Math.random) {
   for (let i = 0; i < count; i += 1) slots[i].imageIndex = photos[i];
 }
 
+function unitsOf(rect) {
+  const units = [];
+  for (let row = rect.row; row < rect.row + rect.rowSpan; row += 1) {
+    for (let col = rect.col; col < rect.col + rect.colSpan; col += 1) units.push({ col, row });
+  }
+  return units;
+}
+
+function sameUnit(a, b) {
+  return a.col === b.col && a.row === b.row;
+}
+
+function rectContains(outer, inner) {
+  return (
+    inner.col >= outer.col &&
+    inner.row >= outer.row &&
+    inner.col + inner.colSpan <= outer.col + outer.colSpan &&
+    inner.row + inner.rowSpan <= outer.row + outer.rowSpan
+  );
+}
+
 export function relocateBlock(cells, id, col, row, rows, cols) {
   const draft = cloneCells(cells);
   const cell = draft.find((item) => item.id === id);
@@ -634,32 +706,68 @@ export function relocateBlock(cells, id, col, row, rows, cols) {
     return { ok: false, reason: "edge" };
   }
   if (cell.col === col && cell.row === row) return { ok: true, kind: "same" };
-  const next = { ...cell, col, row };
-  const hits = draft.filter(
-    (other) => other.id !== cell.id && intersects(footprint(next, cols, rows), footprint(other, cols, rows)),
-  );
+
+  const dest = { col, row, colSpan: cell.colSpan, rowSpan: cell.rowSpan };
+  const source = { col: cell.col, row: cell.row, colSpan: cell.colSpan, rowSpan: cell.rowSpan };
+  const hits = draft.filter((other) => other.id !== cell.id && intersects(dest, footprint(other, cols, rows)));
   if (hits.length === 0) {
     cell.col = col;
     cell.row = row;
     cells.splice(0, cells.length, ...draft);
     return { ok: true, kind: "move" };
   }
-  const other = hits[0];
-  const sameSize =
+  if (
     hits.length === 1 &&
-    other.col === col &&
-    other.row === row &&
-    other.colSpan === cell.colSpan &&
-    other.rowSpan === cell.rowSpan;
-  if (sameSize) {
-    other.col = cell.col;
-    other.row = cell.row;
+    hits[0].col === col &&
+    hits[0].row === row &&
+    hits[0].colSpan === cell.colSpan &&
+    hits[0].rowSpan === cell.rowSpan
+  ) {
+    hits[0].col = source.col;
+    hits[0].row = source.row;
     cell.col = col;
     cell.row = row;
     cells.splice(0, cells.length, ...draft);
     return { ok: true, kind: "swap" };
   }
-  return { ok: false, reason: "blocked" };
+  if (!hits.every((hit) => rectContains(dest, footprint(hit, cols, rows)))) {
+    return { ok: false, reason: "blocked" };
+  }
+  const destUnits = unitsOf(dest);
+  const sourceUnits = unitsOf(source);
+  for (const unit of destUnits) {
+    const insideSource = sourceUnits.some((item) => sameUnit(item, unit));
+    const cover = hits.filter((hit) => coversUnit(footprint(hit, cols, rows), unit.col, unit.row));
+    if (insideSource && cover.length !== 0) return { ok: false, reason: "blocked" };
+    if (!insideSource && cover.length !== 1) return { ok: false, reason: "blocked" };
+  }
+  const vacated = sourceUnits.filter((unit) => !destUnits.some((item) => sameUnit(item, unit)));
+  const hitArea = hits.reduce((sum, hit) => sum + hit.colSpan * hit.rowSpan, 0);
+  if (hitArea !== vacated.length || hits.some((hit) => hit.colSpan !== 1 || hit.rowSpan !== 1)) {
+    return { ok: false, reason: "blocked" };
+  }
+  vacated.sort((a, b) => a.row - b.row || a.col - b.col);
+  hits
+    .slice()
+    .sort((a, b) => a.row - b.row || a.col - b.col)
+    .forEach((hit, index) => {
+      hit.col = vacated[index].col;
+      hit.row = vacated[index].row;
+    });
+  cell.col = col;
+  cell.row = row;
+  cells.splice(0, cells.length, ...draft);
+  return { ok: true, kind: "move" };
+}
+
+export function swapImages(cells, sourceId, targetId) {
+  const source = cells.find((cell) => cell.id === sourceId);
+  const target = cells.find((cell) => cell.id === targetId);
+  if (!source || !target || source === target) return { ok: false, reason: "missing" };
+  const image = source.imageIndex;
+  source.imageIndex = target.imageIndex;
+  target.imageIndex = image;
+  return { ok: true, kind: "swap-image", id: sourceId };
 }
 
 export function placePhoto(cells, photoIndex, col, row, cols, rows) {
