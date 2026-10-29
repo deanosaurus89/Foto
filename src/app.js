@@ -4,18 +4,18 @@ import { canvasToJpegBlob } from "./lib/exif.js";
 import { MAX_PHOTOS, loadPhoto } from "./lib/images.js";
 import {
   MAX_GRID,
+  addGridLine,
   cellsForPreset,
-  clearCell,
-  evenPackCol,
-  evenPackRow,
   fitCellsToGrid,
-  growCell,
   hitTest,
-  hitUnit,
-  placeCell,
+  mergeCells,
+  nearestUnit,
+  placePhoto,
+  randomFill,
+  relocateBlock,
   resolveCollageLayout,
   resolveCombineLayout,
-  shrinkCell,
+  splitCell,
 } from "./lib/layout.js";
 import {
   exportFilename,
@@ -25,6 +25,7 @@ import {
 } from "./lib/metadata.js";
 import { registerServiceWorker } from "./pwa.js";
 import {
+  compactThumbHTML,
   editorHTML,
   homeHTML,
   IOS_SAVE_HINT,
@@ -65,6 +66,9 @@ function createState() {
       cols: 2,
       cells: null,
       activeId: null,
+      selection: [],
+      mixed: false,
+      radius: 0,
       resolutionMode: "cell",
       cell: 1200,
       longSide: 2400,
@@ -98,12 +102,19 @@ function cssColor(value) {
 
 function ensureCollageModel() {
   const collage = state.collage;
-  if (Array.isArray(collage.cells)) return;
-  const made = cellsForPreset(collage.preset, collage.rows, collage.cols);
-  collage.rows = made.rows;
-  collage.cols = made.cols;
-  collage.cells = made.cells;
-  collage.activeId = made.cells[0]?.id ?? null;
+  if (!Array.isArray(collage.cells)) {
+    const made = cellsForPreset(collage.preset, collage.rows, collage.cols);
+    collage.rows = made.rows;
+    collage.cols = made.cols;
+    collage.cells = made.cells;
+    collage.activeId = made.cells[0]?.id ?? null;
+    collage.selection = [];
+    collage.mixed = false;
+  }
+  if (!collage.mixed && state.photos.length) {
+    randomFill(collage.cells, state.photos.length);
+    collage.mixed = true;
+  }
 }
 
 function currentLayout() {
@@ -293,8 +304,24 @@ function drawPreview() {
   canvas.width = Math.max(1, Math.round(cssW * dpr));
   canvas.height = Math.max(1, Math.round(cssH * dpr));
   const ctx = canvas.getContext("2d", { alpha: false });
-  const mark = state.mode === "collage" ? state.collage.activeId : state.selected;
-  renderComposition(ctx, scaleLayout(layout, scale * dpr), state.photos, cssColor(settings().bg), mark);
+  const radius = state.mode === "collage" ? (state.collage.radius || 0) * scale * dpr : 0;
+  const mark =
+    state.mode === "collage"
+      ? state.collage.selection?.length
+        ? state.collage.selection
+        : state.collage.activeId
+      : state.selected;
+  renderComposition(ctx, scaleLayout(layout, scale * dpr), state.photos, cssColor(settings().bg), mark, radius);
+  if (state.dragHover && state.mode === "collage") {
+    const hoverScale = scale * dpr;
+    const hover = state.dragHover;
+    ctx.save();
+    ctx.strokeStyle = "#c45b45";
+    ctx.lineWidth = Math.max(3, 3 * dpr);
+    ctx.strokeRect(hover.x * hoverScale, hover.y * hoverScale, hover.w * hoverScale, hover.h * hoverScale);
+    ctx.restore();
+  }
+  canvas.style.touchAction = state.mode === "collage" ? "none" : "manipulation";
   const label = document.getElementById("size-label");
   if (label) {
     const limited = layout.limited ? " · für Safari begrenzt" : "";
@@ -352,6 +379,18 @@ function paintThumbs() {
   const layout = currentLayout();
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   document.querySelectorAll("canvas.thumb-canvas").forEach((canvas) => {
+    if (state.mode === "collage") {
+      const photo = state.photos[Number(canvas.dataset.index)];
+      canvas.width = 112;
+      canvas.height = 112;
+      canvas.style.width = "56px";
+      canvas.style.height = "56px";
+      const thumbCtx = canvas.getContext("2d");
+      thumbCtx.fillStyle = "#e7e1d8";
+      thumbCtx.fillRect(0, 0, canvas.width, canvas.height);
+      if (photo?.image) drawImageCover(thumbCtx, photo.image, 0, 0, canvas.width, canvas.height, photo.crop);
+      return;
+    }
     const index = Number(canvas.dataset.index);
     const photo = state.photos[index];
     const frame = frameFor(index, layout);
@@ -384,12 +423,16 @@ function refreshThumbs() {
       .map((tile) => tile.imageIndex)
       .filter((index) => Number.isInteger(index) && index >= 0 && index < state.photos.length),
   );
+  if (state.mode === "collage") host.classList.add("thumbs-compact");
+  else host.classList.remove("thumbs-compact");
   host.innerHTML = state.photos
     .map((photo, index) =>
-      thumbHTML(photo, index, {
-        selected: index === state.selected,
-        unused: state.mode === "collage" ? !used.has(index) : state.photos.length > layout.tiles.length && !used.has(index),
-      }),
+      state.mode === "collage"
+        ? compactThumbHTML(photo, index, { selected: index === state.selected, placed: used.has(index) })
+        : thumbHTML(photo, index, {
+            selected: index === state.selected,
+            unused: state.photos.length > layout.tiles.length && !used.has(index),
+          }),
     )
     .join("");
   paintThumbs();
@@ -418,19 +461,17 @@ function syncSelection() {
 function syncCellTools() {
   const el = document.getElementById("cell-label");
   if (!el || state.mode !== "collage") return;
-  const cell = state.collage.cells?.find((item) => item.id === state.collage.activeId);
-  if (!cell) {
-    el.textContent = "Tippe ein Feld in der Vorschau an.";
+  const count = state.collage.selection?.length || 0;
+  if (count > 1) {
+    el.textContent = `${count} Felder gewählt. Zusammenführen macht daraus eine große Kachel.`;
     return;
   }
-  const photo = Number.isInteger(cell.imageIndex) ? state.photos[cell.imageIndex] : null;
-  const shape =
-    cell.pack === "row"
-      ? "ganze Zeile, gleichmäßig"
-      : cell.pack === "col"
-        ? "ganze Spalte, gleichmäßig"
-        : `${cell.colSpan}×${cell.rowSpan} im Raster`;
-  el.textContent = photo ? `${shape} · Foto ${cell.imageIndex + 1}` : `${shape} · kein Foto`;
+  const cell = state.collage.cells?.find((item) => item.id === state.collage.activeId);
+  if (cell && (cell.colSpan > 1 || cell.rowSpan > 1)) {
+    el.textContent = `Große Kachel ${cell.colSpan}×${cell.rowSpan}. Ziehen verschiebt sie, Lösen teilt sie.`;
+    return;
+  }
+  el.textContent = "Ziehe Kacheln zum Tauschen. Tippe mehrere Felder an und führe sie zusammen.";
 }
 
 function drawAll() {
@@ -624,6 +665,217 @@ function focusCollageTile(tile) {
   syncCellTools();
 }
 
+let suppressClickUntil = 0;
+
+function layoutPoint(clientX, clientY) {
+  const canvas = document.getElementById("preview");
+  if (!canvas) return null;
+  const rect = canvas.getBoundingClientRect();
+  const layout = currentLayout();
+  if (clientX < rect.left || clientY < rect.top || clientX > rect.right || clientY > rect.bottom) return null;
+  return {
+    x: ((clientX - rect.left) / rect.width) * layout.width,
+    y: ((clientY - rect.top) / rect.height) * layout.height,
+    layout,
+  };
+}
+
+function hideGhost() {
+  const ghost = document.getElementById("drag-ghost");
+  if (ghost) ghost.hidden = true;
+  state.dragHover = null;
+}
+
+function showGhost(imageIndex, clientX, clientY) {
+  const ghost = document.getElementById("drag-ghost");
+  if (!ghost) return;
+  ghost.hidden = false;
+  ghost.style.left = `${clientX}px`;
+  ghost.style.top = `${clientY}px`;
+  const canvas = ghost.querySelector("canvas");
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const photo = state.photos[imageIndex];
+  if (photo?.image) drawImageCover(ctx, photo.image, 0, 0, canvas.width, canvas.height, photo.crop);
+  else {
+    ctx.fillStyle = "#e7e1d8";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+}
+
+function noteCell(text) {
+  const el = document.getElementById("cell-label");
+  if (el) el.textContent = text;
+}
+
+function applyCollageChange(result) {
+  if (!result?.ok) {
+    const notes = {
+      edge: "Dort ist kein Platz mehr.",
+      blocked: "Die Kachel passt dort nicht hin.",
+      shape: "Die Felder bilden kein Rechteck.",
+      few: "Tippe mindestens zwei Felder an.",
+      min: "Das Feld ist schon eine einzelne Kachel.",
+      missing: "Kein Feld an dieser Stelle.",
+    };
+    noteCell(notes[result?.reason] || "Das geht dort nicht.");
+    state.dragHover = null;
+    drawPreview();
+    return;
+  }
+  if (result.id) {
+    state.collage.activeId = result.id;
+    state.collage.selection = [result.id];
+  }
+  state.dragHover = null;
+  markDirty();
+  drawAll();
+}
+
+function toggleCollageSelection(tile) {
+  const id = tile.id;
+  const list = state.collage.selection || [];
+  state.collage.selection = list.includes(id) ? list.filter((item) => item !== id) : list.concat(id);
+  state.collage.activeId = id;
+  if (state.photos[tile.imageIndex]) state.selected = tile.imageIndex;
+  drawAll();
+}
+
+function hoverRect(cell, col, row) {
+  const layout = currentLayout();
+  return {
+    x: layout.margin + col * (layout.cell + layout.gap),
+    y: layout.margin + row * (layout.cell + layout.gap),
+    w: cell.colSpan * layout.cell + Math.max(0, cell.colSpan - 1) * layout.gap,
+    h: cell.rowSpan * layout.cell + Math.max(0, cell.rowSpan - 1) * layout.gap,
+  };
+}
+
+function bindBoard(canvas) {
+  let gesture = null;
+  canvas.addEventListener("pointerdown", (event) => {
+    if (state.mode !== "collage") {
+      onPreviewPick(event);
+      return;
+    }
+    const point = layoutPoint(event.clientX, event.clientY);
+    const tile = point ? hitTest(point.layout, point.x, point.y) : null;
+    const unit = point ? nearestUnit(point.layout, point.x, point.y) : null;
+    const cell = tile ? state.collage.cells.find((item) => item.id === tile.id) : null;
+    gesture = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      tile,
+      cell,
+      dragged: false,
+      dcol: cell && unit ? unit.col - cell.col : 0,
+      drow: cell && unit ? unit.row - cell.row : 0,
+    };
+  });
+  canvas.addEventListener(
+    "pointermove",
+    (event) => {
+    if (!gesture || event.pointerId !== gesture.pointerId || !gesture.cell) return;
+    const dist = Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y);
+    if (!gesture.dragged && dist < 12) return;
+    if (!gesture.dragged) {
+      gesture.dragged = true;
+      canvas.setPointerCapture(event.pointerId);
+    }
+    event.preventDefault();
+    showGhost(gesture.cell.imageIndex, event.clientX, event.clientY);
+    const point = layoutPoint(event.clientX, event.clientY);
+    const drop = point ? nearestUnit(point.layout, point.x, point.y) : null;
+    state.dragHover = drop ? hoverRect(gesture.cell, drop.col - gesture.dcol, drop.row - gesture.drow) : null;
+    drawPreview();
+  },
+    { passive: false },
+  );
+  const end = (event) => {
+    if (!gesture || event.pointerId !== gesture.pointerId) return;
+    const current = gesture;
+    gesture = null;
+    hideGhost();
+    if (!current.dragged) {
+      if (current.tile) toggleCollageSelection(current.tile);
+      return;
+    }
+    suppressClickUntil = Date.now() + 300;
+    const point = layoutPoint(event.clientX, event.clientY);
+    const drop = point ? nearestUnit(point.layout, point.x, point.y) : null;
+    if (!drop || !current.cell) {
+      drawAll();
+      return;
+    }
+    const result = relocateBlock(
+      state.collage.cells,
+      current.cell.id,
+      drop.col - current.dcol,
+      drop.row - current.drow,
+      state.collage.rows,
+      state.collage.cols,
+    );
+    applyCollageChange(result.ok ? { ...result, id: current.cell.id } : result);
+  };
+  canvas.addEventListener("pointerup", end);
+  canvas.addEventListener("pointercancel", end);
+}
+
+function bindFilmstrip(host) {
+  let gesture = null;
+  host.addEventListener("pointerdown", (event) => {
+    const button = event.target.closest("[data-drag='photo']");
+    if (!button) return;
+    gesture = {
+      pointerId: event.pointerId,
+      index: Number(button.dataset.index),
+      x: event.clientX,
+      y: event.clientY,
+      dragged: false,
+      scroll: false,
+    };
+  });
+  host.addEventListener(
+    "pointermove",
+    (event) => {
+      if (!gesture || event.pointerId !== gesture.pointerId) return;
+      const dx = event.clientX - gesture.x;
+      const dy = event.clientY - gesture.y;
+      if (!gesture.dragged && !gesture.scroll) {
+        if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) {
+          gesture.scroll = true;
+          return;
+        }
+        if (Math.abs(dy) > 12 || Math.hypot(dx, dy) > 16) {
+          gesture.dragged = true;
+          host.setPointerCapture(event.pointerId);
+        }
+      }
+      if (!gesture.dragged) return;
+      event.preventDefault();
+      showGhost(gesture.index, event.clientX, event.clientY);
+    },
+    { passive: false },
+  );
+  const end = (event) => {
+    if (!gesture || event.pointerId !== gesture.pointerId) return;
+    const current = gesture;
+    gesture = null;
+    hideGhost();
+    if (!current.dragged) return;
+    suppressClickUntil = Date.now() + 300;
+    const point = layoutPoint(event.clientX, event.clientY);
+    const drop = point ? nearestUnit(point.layout, point.x, point.y) : null;
+    if (!drop) return;
+    applyCollageChange(
+      placePhoto(state.collage.cells, current.index, drop.col, drop.row, state.collage.cols, state.collage.rows),
+    );
+  };
+  host.addEventListener("pointerup", end);
+  host.addEventListener("pointercancel", end);
+}
+
 function onPreviewPick(event) {
   const canvas = event.currentTarget;
   const layout = currentLayout();
@@ -666,7 +918,9 @@ function wireEditor() {
   const cropper = document.getElementById("cropper");
   if (cropper) bindCropper(cropper);
   const preview = document.getElementById("preview");
-  if (preview) preview.addEventListener("pointerdown", onPreviewPick);
+  if (preview) bindBoard(preview);
+  const film = document.getElementById("thumbs");
+  if (film && state.mode === "collage") bindFilmstrip(film);
   const hint = document.getElementById("save-hint");
   if (hint && isIosDevice()) {
     hint.hidden = false;
@@ -747,7 +1001,8 @@ async function composeExport() {
     const layout = currentLayout();
     let canvas;
     try {
-      canvas = renderToCanvas(layout, state.photos, cssColor(settings().bg));
+      const radius = state.mode === "collage" ? state.collage.radius || 0 : 0;
+      canvas = renderToCanvas(layout, state.photos, cssColor(settings().bg), radius);
     } catch {
       throw new Error("toBlob");
     }
@@ -830,6 +1085,7 @@ async function onDownload() {
 }
 
 function onClick(event) {
+  if (Date.now() < suppressClickUntil && event.target.closest("#preview, .compact-thumb")) return;
   const button = event.target.closest("[data-action]");
   if (!button || !document.getElementById("app").contains(button)) return;
   const action = button.dataset.action;
@@ -875,16 +1131,9 @@ function onClick(event) {
   }
   if (action === "select") {
     state.selected = Number(button.dataset.index);
-    if (state.mode === "collage") {
-      const cell = activeCollageCell();
-      if (cell) cell.imageIndex = state.selected;
-      markDirty();
-      drawAll();
-      return;
-    }
     syncSelection();
-    drawPreview();
     drawCropper();
+    if (state.mode !== "collage") drawPreview();
     return;
   }
   if (action === "direction") {
@@ -929,8 +1178,12 @@ function onClick(event) {
     state.collage.rows = made.rows;
     state.collage.cols = made.cols;
     state.collage.cells = made.cells;
-    state.collage.activeId = made.cells[0]?.id ?? null;
-    if (state.photos[made.cells[0]?.imageIndex]) state.selected = made.cells[0].imageIndex;
+    randomFill(state.collage.cells, state.photos.length);
+    state.collage.mixed = true;
+    state.collage.selection = [];
+    state.collage.activeId = state.collage.cells[0]?.id ?? null;
+    const firstPhoto = state.collage.cells.find((cell) => state.photos[cell.imageIndex]);
+    if (firstPhoto) state.selected = firstPhoto.imageIndex;
     const rowsLabel = document.getElementById("rows-value");
     const colsLabel = document.getElementById("cols-value");
     if (rowsLabel) rowsLabel.textContent = String(made.rows);
@@ -945,12 +1198,18 @@ function onClick(event) {
     ensureCollageModel();
     const key = action.startsWith("rows") ? "rows" : "cols";
     const delta = action.endsWith("inc") ? 1 : -1;
+    if (delta > 0 && state.collage[key] >= MAX_GRID) return;
+    if (delta < 0 && state.collage[key] <= 1) return;
     state.collage[key] = Math.min(MAX_GRID, Math.max(1, state.collage[key] + delta));
     state.collage.preset = "custom";
-    state.collage.cells = fitCellsToGrid(state.collage.cells, state.collage.rows, state.collage.cols);
+    if (delta > 0) addGridLine(state.collage.cells, state.collage.rows, state.collage.cols, key === "rows" ? "row" : "col");
+    else state.collage.cells = fitCellsToGrid(state.collage.cells, state.collage.rows, state.collage.cols);
     if (!state.collage.cells.some((cell) => cell.id === state.collage.activeId)) {
       state.collage.activeId = state.collage.cells[0]?.id ?? null;
     }
+    state.collage.selection = (state.collage.selection || []).filter((id) =>
+      state.collage.cells.some((cell) => cell.id === id),
+    );
     const label = document.getElementById(key === "rows" ? "rows-value" : "cols-value");
     if (label) label.textContent = String(state.collage[key]);
     press("preset", "custom");
@@ -959,51 +1218,25 @@ function onClick(event) {
     drawAll();
     return;
   }
-  if (
-    action === "span-wider" ||
-    action === "span-narrower" ||
-    action === "span-taller" ||
-    action === "span-shorter" ||
-    action === "even-row" ||
-    action === "even-col" ||
-    action === "clear-cell"
-  ) {
+  if (action === "mix") {
     ensureCollageModel();
-    const cell = activeCollageCell();
-    if (!cell) {
-      syncCellTools();
-      return;
-    }
-    let result = { ok: true };
-    if (action === "clear-cell") {
-      clearCell(state.collage.cells, cell.id);
-      state.collage.activeId = state.collage.cells[0]?.id ?? null;
-    } else if (action === "even-row") {
-      if (cell.pack === "col") result = { ok: false, reason: "blocked" };
-      else result = evenPackRow(state.collage.cells, cell.row, state.collage.cols, state.collage.rows);
-    } else if (action === "even-col") {
-      if (cell.pack === "row") result = { ok: false, reason: "blocked" };
-      else result = evenPackCol(state.collage.cells, cell.col, state.collage.cols, state.collage.rows);
-    } else {
-      const axis = action.includes("wide") || action.includes("narrow") ? "col" : "row";
-      const change = action === "span-wider" || action === "span-taller" ? growCell : shrinkCell;
-      result = change(state.collage.cells, cell.id, axis, state.collage.rows, state.collage.cols);
-    }
-    if (!result.ok) {
-      const notes = {
-        edge: "Das Feld liegt schon am Rand.",
-        overlap: "Die Nachbarfelder sind belegt. Leere oder verkleinere sie zuerst.",
-        blocked: "Hier kreuzt schon ein großes Feld die Zeile oder Spalte. Verkleinere es zuerst.",
-        empty: "In dieser Zeile oder Spalte liegt kein Feld.",
-        crowded: "Mehr Felder als Rasterplätze.",
-        min: "Kleiner geht das Feld nicht.",
-      };
-      const label = document.getElementById("cell-label");
-      if (label) label.textContent = notes[result.reason] || "Das geht an dieser Stelle nicht.";
-      return;
-    }
+    randomFill(state.collage.cells, state.photos.length);
+    state.collage.mixed = true;
+    state.collage.selection = [];
     markDirty();
     drawAll();
+    return;
+  }
+  if (action === "merge") {
+    ensureCollageModel();
+    const result = mergeCells(state.collage.cells, state.collage.selection || []);
+    applyCollageChange(result);
+    return;
+  }
+  if (action === "split") {
+    ensureCollageModel();
+    const result = splitCell(state.collage.cells, state.collage.activeId);
+    applyCollageChange(result);
     return;
   }
   if (action === "bg") {
@@ -1048,6 +1281,14 @@ function onInput(event) {
     );
     markDirty();
     drawAll();
+    return;
+  }
+  if (target.id === "radius") {
+    state.collage.radius = Number(target.value);
+    const label = document.getElementById("radius-value");
+    if (label) label.textContent = `${state.collage.radius} px`;
+    markDirty();
+    drawPreview();
     return;
   }
   if (target.id === "gap" || target.id === "margin") {
