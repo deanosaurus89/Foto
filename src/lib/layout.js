@@ -160,7 +160,7 @@ export function createCell(partial = {}) {
   const pack = partial.pack === "row" || partial.pack === "col" ? partial.pack : "grid";
   return {
     id: partial.id || `c${cellSerial}`,
-    imageIndex: partial.imageIndex ?? 0,
+    imageIndex: Object.prototype.hasOwnProperty.call(partial, "imageIndex") ? partial.imageIndex : 0,
     col: partial.col ?? 0,
     row: partial.row ?? 0,
     colSpan: Math.max(1, partial.colSpan ?? 1),
@@ -609,6 +609,149 @@ export function hitTest(layout, x, y) {
   return null;
 }
 
+export function randomFill(cells, photoCount, random = Math.random) {
+  const slots = cells.slice();
+  for (let i = slots.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(random() * (i + 1));
+    [slots[i], slots[j]] = [slots[j], slots[i]];
+  }
+  for (const cell of cells) cell.imageIndex = null;
+  const photos = [];
+  for (let i = 0; i < photoCount; i += 1) photos.push(i);
+  for (let i = photos.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(random() * (i + 1));
+    [photos[i], photos[j]] = [photos[j], photos[i]];
+  }
+  const count = Math.min(photos.length, slots.length);
+  for (let i = 0; i < count; i += 1) slots[i].imageIndex = photos[i];
+}
+
+export function relocateBlock(cells, id, col, row, rows, cols) {
+  const draft = cloneCells(cells);
+  const cell = draft.find((item) => item.id === id);
+  if (!cell) return { ok: false, reason: "missing" };
+  if (col < 0 || row < 0 || col + cell.colSpan > cols || row + cell.rowSpan > rows) {
+    return { ok: false, reason: "edge" };
+  }
+  if (cell.col === col && cell.row === row) return { ok: true, kind: "same" };
+  const next = { ...cell, col, row };
+  const hits = draft.filter(
+    (other) => other.id !== cell.id && intersects(footprint(next, cols, rows), footprint(other, cols, rows)),
+  );
+  if (hits.length === 0) {
+    cell.col = col;
+    cell.row = row;
+    cells.splice(0, cells.length, ...draft);
+    return { ok: true, kind: "move" };
+  }
+  const other = hits[0];
+  const sameSize =
+    hits.length === 1 &&
+    other.col === col &&
+    other.row === row &&
+    other.colSpan === cell.colSpan &&
+    other.rowSpan === cell.rowSpan;
+  if (sameSize) {
+    other.col = cell.col;
+    other.row = cell.row;
+    cell.col = col;
+    cell.row = row;
+    cells.splice(0, cells.length, ...draft);
+    return { ok: true, kind: "swap" };
+  }
+  return { ok: false, reason: "blocked" };
+}
+
+export function placePhoto(cells, photoIndex, col, row, cols, rows) {
+  const target = cells.find((cell) => coversUnit(footprint(cell, cols, rows), col, row));
+  if (!target) return { ok: false, reason: "missing" };
+  if (target.imageIndex === photoIndex) return { ok: true, kind: "same" };
+  const previous = cells.find((cell) => cell !== target && cell.imageIndex === photoIndex);
+  const displaced = target.imageIndex;
+  target.imageIndex = photoIndex;
+  if (previous) previous.imageIndex = displaced;
+  return { ok: true, kind: previous || Number.isInteger(displaced) ? "swap" : "place" };
+}
+
+export function mergeCells(cells, ids) {
+  const chosen = cells.filter((cell) => ids.includes(cell.id));
+  if (chosen.length < 2) return { ok: false, reason: "few" };
+  let minCol = Infinity;
+  let minRow = Infinity;
+  let maxCol = 0;
+  let maxRow = 0;
+  let area = 0;
+  for (const cell of chosen) {
+    minCol = Math.min(minCol, cell.col);
+    minRow = Math.min(minRow, cell.row);
+    maxCol = Math.max(maxCol, cell.col + cell.colSpan);
+    maxRow = Math.max(maxRow, cell.row + cell.rowSpan);
+    area += cell.colSpan * cell.rowSpan;
+  }
+  const width = maxCol - minCol;
+  const height = maxRow - minRow;
+  if (area !== width * height) return { ok: false, reason: "shape" };
+  for (let row = minRow; row < maxRow; row += 1) {
+    for (let col = minCol; col < maxCol; col += 1) {
+      const covers = chosen.filter((cell) =>
+        coversUnit({ col: cell.col, row: cell.row, colSpan: cell.colSpan, rowSpan: cell.rowSpan }, col, row),
+      );
+      if (covers.length !== 1) return { ok: false, reason: "shape" };
+    }
+  }
+  const imageIndex = chosen.find((cell) => Number.isInteger(cell.imageIndex))?.imageIndex ?? null;
+  const merged = createCell({
+    col: minCol,
+    row: minRow,
+    colSpan: width,
+    rowSpan: height,
+    imageIndex,
+    pack: "grid",
+  });
+  const rest = cells.filter((cell) => !ids.includes(cell.id));
+  rest.push(merged);
+  cells.splice(0, cells.length, ...rest);
+  return { ok: true, id: merged.id };
+}
+
+export function splitCell(cells, id) {
+  const index = cells.findIndex((cell) => cell.id === id);
+  if (index < 0) return { ok: false, reason: "missing" };
+  const cell = cells[index];
+  if (cell.colSpan === 1 && cell.rowSpan === 1) return { ok: false, reason: "min" };
+  const pieces = [];
+  for (let row = 0; row < cell.rowSpan; row += 1) {
+    for (let col = 0; col < cell.colSpan; col += 1) {
+      const piece = createCell({
+        col: cell.col + col,
+        row: cell.row + row,
+        imageIndex: row === 0 && col === 0 ? cell.imageIndex : null,
+        pack: "grid",
+      });
+      if (row === 0 && col === 0) piece.id = cell.id;
+      pieces.push(piece);
+    }
+  }
+  cells.splice(index, 1, ...pieces);
+  return { ok: true, id: cell.id };
+}
+
+export function addGridLine(cells, rows, cols, axis) {
+  if (axis === "row") {
+    const row = rows - 1;
+    for (let col = 0; col < cols; col += 1) {
+      const covered = cells.some((cell) => coversUnit(footprint(cell, cols, rows), col, row));
+      if (!covered) cells.push(createCell({ col, row, imageIndex: null, pack: "grid" }));
+    }
+    return;
+  }
+  const col = cols - 1;
+  for (let row = 0; row < rows; row += 1) {
+    const covered = cells.some((cell) => coversUnit(footprint(cell, cols, rows), col, row));
+    if (!covered) cells.push(createCell({ col, row, imageIndex: null, pack: "grid" }));
+  }
+}
+
 export function hitUnit(layout, x, y) {
   const { cell, gap, margin, cols, rows } = layout;
   if (!(cell > 0)) return null;
@@ -618,5 +761,15 @@ export function hitUnit(layout, x, y) {
   const localX = x - margin - col * (cell + gap);
   const localY = y - margin - row * (cell + gap);
   if (localX < 0 || localY < 0 || localX > cell || localY > cell) return null;
+  return { col, row };
+}
+
+export function nearestUnit(layout, x, y) {
+  const exact = hitUnit(layout, x, y);
+  if (exact) return exact;
+  const { cell, gap, margin, cols, rows, width, height } = layout;
+  if (!(cell > 0) || x < margin || y < margin || x > width - margin || y > height - margin) return null;
+  const col = Math.min(cols - 1, Math.max(0, Math.floor((x - margin) / (cell + gap))));
+  const row = Math.min(rows - 1, Math.max(0, Math.floor((y - margin) / (cell + gap))));
   return { col, row };
 }

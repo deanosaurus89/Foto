@@ -7,7 +7,7 @@ Alles läuft im Browser. Es gibt keinen Server, und die Bilder werden nicht hoch
 ## Funktionen
 
 - **Streifen:** 2–10 Fotos nebeneinander oder untereinander. Unterschiedliche Auflösungen werden auf dieselbe Kachelgröße gebracht (Kantenlänge, Breite oder Höhe des Ergebnisses, dazu ein Kachelformat wie 1:1 oder 4:5). Optionaler Rahmen, symmetrisch als Vorgabe.
-- **Collage:** Vorlagen (2×2, 3×2, 2×3, 3×3, 1+2, 2+1, 1 über 2, 2 über 1) oder ein eigenes Raster mit 1–10 Zeilen und 1–10 Spalten. Ein Feld kann Nachbarfelder einnehmen, zum Beispiel ein 2×2-Block in einem 3×3-Raster; die restliche Spalte und Zeile behalten gleiche Abstände. Eine Zeile oder Spalte mit weniger Fotos lässt sich gleichmäßig über die ganze Breite bzw. Höhe verteilen.
+- **Collage:** Zuerst Zeilen und Spalten (bis 10×10, jederzeit erweiterbar). Die Fotos liegen danach zufällig. Kacheln zieht man auf leere Felder oder tauscht sie; aus dem schmalen Filmstreifen zieht man ein Foto auf ein Feld. Mehrere Felder antippen und zusammenführen ergibt eine große Kachel, die sich als Ganzes verschieben lässt. Ein Regler rundet die Ecken. Rahmen und Abstände bleiben gleichmäßig.
 - **Zuschnitt in der Kachel:** Ziehen, Zwei-Finger-Zoom oder Regler. Vorher in der Fotos-App beschneiden ist nicht nötig.
 - **Export:** JPEG mit EXIF. Aufnahmedatum als Mittelwert, von einem gewählten Foto oder als eigene Zeit. Ort standardmäßig vom ersten Foto mit GPS; alternativ der häufigste Ort (auf etwa 10 m gerundet), ein bestimmtes Foto oder kein Ort.
 

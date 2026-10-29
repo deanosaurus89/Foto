@@ -36,7 +36,7 @@ export function homeHTML() {
       <button type="button" class="choice" data-action="mode-collage">
         <span class="choice-kicker">Anordnen</span>
         <span class="choice-title">Collage</span>
-        <span class="choice-text">Raster bis 10×10, auch mit großen Feldern und gleichmäßig verteilten Reihen. Zuschnitt direkt in der Kachel.</span>
+        <span class="choice-text">Raster wählen, Fotos fallen zufällig hinein. Ziehen, tauschen, zusammenführen — mit leicht runden Ecken.</span>
       </button>
       ${installHint()}
     </main>`;
@@ -113,7 +113,7 @@ export function editorHTML(state) {
   const structureBlock = collage
     ? `<section class="panel" id="layout-controls">
         <h2>Raster</h2>
-        <p class="hint">Zeilen und Spalten bis 10. Vorlagen setzen das Raster, die Zähler ändern es frei.</p>
+        <p class="hint">Zuerst Zeilen und Spalten, höchstens 10. Plus hängt eine Zeile oder Spalte an. Vorlagen sind nur Abkürzungen.</p>
         <div class="chips">${PRESETS.map((preset) => {
           const pressed = preset.id === settings.preset ? "true" : "false";
           return `<button type="button" class="chip" data-action="preset" data-value="${preset.id}" aria-pressed="${pressed}">${esc(preset.name)}</button>`;
@@ -122,20 +122,28 @@ export function editorHTML(state) {
           <div class="stepper-field">
             <span>Zeilen</span>
             <div class="stepper">
-              <button type="button" data-action="rows-dec" aria-label="Weniger Zeilen">−</button>
+              <button type="button" data-action="rows-dec" aria-label="Zeile entfernen">−</button>
               <strong id="rows-value">${settings.rows}</strong>
-              <button type="button" data-action="rows-inc" aria-label="Mehr Zeilen">+</button>
+              <button type="button" data-action="rows-inc" aria-label="Zeile hinzufügen">+</button>
             </div>
           </div>
           <div class="stepper-field">
             <span>Spalten</span>
             <div class="stepper">
-              <button type="button" data-action="cols-dec" aria-label="Weniger Spalten">−</button>
+              <button type="button" data-action="cols-dec" aria-label="Spalte entfernen">−</button>
               <strong id="cols-value">${settings.cols}</strong>
-              <button type="button" data-action="cols-inc" aria-label="Mehr Spalten">+</button>
+              <button type="button" data-action="cols-inc" aria-label="Spalte hinzufügen">+</button>
             </div>
           </div>
         </div>
+        <div class="cell-actions">
+          <button type="button" class="btn secondary" data-action="rows-inc">Zeile +</button>
+          <button type="button" class="btn secondary" data-action="cols-inc">Spalte +</button>
+          <button type="button" class="btn secondary" data-action="mix">Mischen</button>
+          <button type="button" class="btn secondary" data-action="merge">Zusammenführen</button>
+          <button type="button" class="btn secondary" data-action="split">Lösen</button>
+        </div>
+        <p id="cell-label" class="meta-line">Fotos liegen zufällig. Ziehe Kacheln zum Tauschen, tippe mehrere an und führe sie zusammen.</p>
       </section>`
     : `<section class="panel" id="layout-controls">
         <h2>Anordnung</h2>
@@ -194,30 +202,17 @@ export function editorHTML(state) {
         </div>
       </section>`;
 
-  const cellTools = collage
-    ? `<section class="panel" id="cell-tools">
-        <h2>Felder</h2>
-        <p id="cell-label" class="meta-line">Tippe ein Feld in der Vorschau an.</p>
-        <p class="hint">Foto in der Reihe antippen, um es ins gewählte Feld zu legen. Breiter und höher fassen freie Nachbarfelder. Gleichmäßig verteilt die Fotos einer Zeile oder Spalte über die ganze Breite bzw. Höhe, mit demselben Abstand.</p>
-        <div class="cell-actions">
-          <button type="button" class="btn secondary" data-action="span-wider">Breiter</button>
-          <button type="button" class="btn secondary" data-action="span-narrower">Schmaler</button>
-          <button type="button" class="btn secondary" data-action="span-taller">Höher</button>
-          <button type="button" class="btn secondary" data-action="span-shorter">Flacher</button>
-          <button type="button" class="btn secondary" data-action="even-row">Zeile gleichmäßig</button>
-          <button type="button" class="btn secondary" data-action="even-col">Spalte gleichmäßig</button>
+  const filmstrip = collage
+    ? `<section class="panel film-panel">
+        <div class="film-row">
+          <div id="thumbs" class="thumbs thumbs-compact"></div>
+          <label class="btn secondary film-add">+
+            <input id="file" class="file-input" type="file" accept="image/*,.heic,.heif" multiple>
+          </label>
         </div>
-        <button type="button" class="btn ghost" data-action="clear-cell">Feld leeren</button>
       </section>`
-    : "";
-
-  return `${header(title, { back: true })}
-    <main class="content editor">
-      <div id="messages" class="messages" aria-live="polite"></div>
-      <p id="status" class="status" hidden></p>
-      ${structureBlock}
-      <section class="panel">
-        <h2>${collage ? "Fotos zuordnen" : "Anzahl und Reihenfolge"}</h2>
+    : `<section class="panel">
+        <h2>Anzahl und Reihenfolge</h2>
         <div id="thumbs" class="thumbs"></div>
         <div class="row-actions">
           <label class="btn secondary">
@@ -226,17 +221,23 @@ export function editorHTML(state) {
           </label>
           <button type="button" class="btn ghost" data-action="clear-photos">Alle entfernen</button>
         </div>
-      </section>
+      </section>`;
+
+  return `${header(title, { back: true })}
+    <main class="content editor">
+      <div id="messages" class="messages" aria-live="polite"></div>
+      <p id="status" class="status" hidden></p>
+      ${structureBlock}
+      ${filmstrip}
       <section class="preview-card">
         <div class="preview-scroll"><canvas id="preview"></canvas></div>
         <p id="size-label" class="meta-line"></p>
         <p id="layout-warning" class="warning" hidden></p>
       </section>
-      ${cellTools}
       <section class="panel">
         <h2>Ausschnitt</h2>
         <p id="crop-label" class="meta-line">Foto</p>
-        <p class="hint">Ziehen verschiebt das Foto in der Kachel, zwei Finger oder der Regler zoomen. Feld in der Vorschau antippen, um es zu wählen.</p>
+        <p class="hint">${collage ? "In der Vorschau zieht man die Kachel. Den Bildausschnitt stellst du hier ein, mit dem Regler oder zwei Fingern." : "Ziehen verschiebt das Foto in der Kachel, zwei Finger oder der Regler zoomen."}</p>
         <div class="cropper-wrap"><canvas id="cropper"></canvas></div>
         <label class="field" for="zoom">Zoom <span id="zoom-value">1.00×</span>
           <input id="zoom" type="range" min="1" max="3" step="0.01" value="1">
@@ -255,6 +256,9 @@ export function editorHTML(state) {
             <input id="margin" type="range" min="0" max="120" step="1" value="${settings.margin}">
           </label>
         </div>
+        ${collage ? `<label class="field" for="radius">Ecken <span id="radius-value">${settings.radius || 0} px</span>
+          <input id="radius" type="range" min="0" max="80" step="1" value="${settings.radius || 0}">
+        </label>` : ""}
         <div class="color-row">
           <span>Hintergrund</span>
           <button type="button" class="swatch" data-action="bg" data-value="#ffffff" aria-label="Weiß" style="background:#ffffff"></button>
@@ -303,13 +307,20 @@ export function editorHTML(state) {
       <p id="save-hint" class="hint save-hint" hidden></p>
       <button type="button" class="btn primary" id="export" data-action="export">JPEG sichern</button>
       <button type="button" class="btn secondary" id="share" data-action="share">In Fotos sichern</button>
-    </div>`;
+    </div>
+    <div id="drag-ghost" hidden><canvas width="128" height="128"></canvas></div>`;
 }
 
 export function messagesHTML(messages) {
   if (!messages.length) return "";
   return `${messages.map((msg) => `<p>${esc(msg)}</p>`).join("")}
     <button type="button" class="text-btn" data-action="clear-messages">Hinweise schließen</button>`;
+}
+
+export function compactThumbHTML(photo, index, { selected, placed }) {
+  return `<button type="button" class="compact-thumb${selected ? " selected" : ""}${placed ? "" : " idle"}" data-action="select" data-index="${index}" data-drag="photo" aria-label="${esc(photo.name)}">
+    <canvas class="thumb-canvas" data-index="${index}" width="112" height="112"></canvas>
+  </button>`;
 }
 
 export function thumbHTML(photo, index, { selected, unused }) {

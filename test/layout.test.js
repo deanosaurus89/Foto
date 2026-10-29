@@ -6,12 +6,18 @@ import {
   MAX_PIXELS,
   buildCollageLayout,
   cellsForPreset,
+  addGridLine,
   clearCell,
   evenPackCol,
   evenPackRow,
   growCell,
+  mergeCells,
+  placePhoto,
+  randomFill,
+  relocateBlock,
   resolveCollageLayout,
   resolveCombineLayout,
+  splitCell,
 } from "../src/lib/layout.js";
 
 function tilesEqual(layout) {
@@ -250,4 +256,86 @@ test("even packing refuses a row that a tall cell already crosses", () => {
   growCell(made.cells, block.id, "row", 3, 3);
   assert.equal(evenPackRow(made.cells, 0, 3, 3).ok, false);
   assert.equal(evenPackCol(made.cells, 0, 3, 3).ok, false);
+});
+
+test("random fill uses each photo at most once", () => {
+  const made = cellsForPreset("custom", 2, 2);
+  randomFill(made.cells, 3, () => 0);
+  const placed = made.cells.map((cell) => cell.imageIndex).filter((index) => index != null);
+  assert.equal(placed.length, 3);
+  assert.equal(new Set(placed).size, 3);
+  assert.ok(placed.every((index) => index >= 0 && index < 3));
+});
+
+test("blocks move onto empty cells and swap with the same size", () => {
+  const made = cellsForPreset("custom", 1, 3);
+  const moving = made.cells[0];
+  const image = moving.imageIndex;
+  clearCell(made.cells, made.cells[2].id);
+  assert.equal(relocateBlock(made.cells, moving.id, 2, 0, 1, 3).kind, "move");
+  assert.equal(made.cells.find((cell) => cell.id === moving.id).col, 2);
+  assert.equal(made.cells.find((cell) => cell.id === moving.id).imageIndex, image);
+
+  const row = cellsForPreset("custom", 1, 2);
+  const left = row.cells[0];
+  const right = row.cells[1];
+  const leftImage = left.imageIndex;
+  const rightImage = right.imageIndex;
+  assert.equal(relocateBlock(row.cells, left.id, right.col, right.row, 1, 2).kind, "swap");
+  const movedLeft = row.cells.find((cell) => cell.id === left.id);
+  const movedRight = row.cells.find((cell) => cell.id === right.id);
+  assert.equal(movedLeft.col, 1);
+  assert.equal(movedRight.col, 0);
+  assert.equal(movedLeft.imageIndex, leftImage);
+  assert.equal(movedRight.imageIndex, rightImage);
+});
+
+test("merging a rectangle keeps one photo and even grid geometry", () => {
+  const made = cellsForPreset("custom", 2, 2);
+  const ids = made.cells.filter((cell) => cell.row === 0).map((cell) => cell.id);
+  const merged = mergeCells(made.cells, ids);
+  assert.equal(merged.ok, true);
+  assert.equal(made.cells.length, 3);
+  const block = made.cells.find((cell) => cell.id === merged.id);
+  assert.equal(block.colSpan, 2);
+  assert.equal(block.rowSpan, 1);
+  const layout = buildCollageLayout({
+    rows: 2,
+    cols: 2,
+    cells: made.cells,
+    cell: 100,
+    gap: 8,
+    margin: 8,
+  });
+  const tile = layout.tiles.find((item) => item.id === block.id);
+  assert.equal(tile.w, 208);
+  assert.equal(overlaps(layout), false);
+  const lShape = cellsForPreset("custom", 2, 2);
+  const bad = mergeCells(
+    lShape.cells,
+    lShape.cells.filter((cell) => !(cell.col === 1 && cell.row === 1)).map((cell) => cell.id),
+  );
+  assert.equal(bad.ok, false);
+});
+
+test("a merged block splits back into single cells and a new row stays empty", () => {
+  const made = cellsForPreset("custom", 2, 2);
+  const ids = made.cells.map((cell) => cell.id);
+  const merged = mergeCells(made.cells, ids);
+  const split = splitCell(made.cells, merged.id);
+  assert.equal(split.ok, true);
+  assert.equal(made.cells.length, 4);
+  assert.ok(made.cells.every((cell) => cell.colSpan === 1 && cell.rowSpan === 1));
+  addGridLine(made.cells, 3, 2, "row");
+  const added = made.cells.filter((cell) => cell.row === 2);
+  assert.equal(added.length, 2);
+  assert.ok(added.every((cell) => cell.imageIndex == null));
+});
+
+test("dropping a photo swaps with the cell it lands on", () => {
+  const made = cellsForPreset("custom", 1, 2);
+  const result = placePhoto(made.cells, 0, 1, 0, 2, 1);
+  assert.equal(result.kind, "swap");
+  assert.equal(made.cells[1].imageIndex, 0);
+  assert.equal(made.cells[0].imageIndex, 1);
 });

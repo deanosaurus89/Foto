@@ -280,6 +280,67 @@ label.btn { display: flex; align-items: center; justify-content: center; positio
   scroll-snap-type: x mandatory;
 }
 
+.film-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.film-row .thumbs { flex: 1; min-width: 0; }
+
+.film-add {
+  width: 52px;
+  min-width: 52px;
+  min-height: 52px;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 52px;
+  font-size: 1.6rem;
+}
+
+.thumbs-compact {
+  gap: 6px;
+  padding-bottom: 2px;
+  touch-action: pan-x;
+}
+
+.compact-thumb {
+  width: 56px;
+  height: 56px;
+  flex: 0 0 56px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  background: var(--fill);
+  overflow: hidden;
+  touch-action: pan-x;
+  scroll-snap-align: start;
+}
+
+.compact-thumb.selected { border-color: var(--ink); }
+
+.compact-thumb.idle { opacity: 0.45; }
+
+.compact-thumb canvas {
+  width: 56px;
+  height: 56px;
+  border-radius: 0;
+}
+
+#drag-ghost {
+  position: fixed;
+  z-index: 30;
+  width: 72px;
+  height: 72px;
+  pointer-events: none;
+  border-radius: 14px;
+  overflow: hidden;
+  transform: translate(-50%, -120%);
+  box-shadow: 0 10px 24px rgba(31, 26, 23, 0.28);
+}
+
+#drag-ghost canvas { width: 100%; height: 100%; display: block; }
+
 .thumb {
   flex: 0 0 168px;
   scroll-snap-align: start;
