@@ -36,7 +36,7 @@ export function homeHTML() {
       <button type="button" class="choice" data-action="mode-collage">
         <span class="choice-kicker">Anordnen</span>
         <span class="choice-title">Collage</span>
-        <span class="choice-text">Vorlagen oder eigenes Raster, Rahmenbreite und Zuschnitt pro Foto — ohne Umweg über die Fotos-App.</span>
+        <span class="choice-text">Raster bis 10×10, auch mit großen Feldern und gleichmäßig verteilten Reihen. Zuschnitt direkt in der Kachel.</span>
       </button>
       ${installHint()}
     </main>`;
@@ -110,14 +110,15 @@ export function editorHTML(state) {
         ? "Höhe des Ergebnisses"
         : "Kantenlänge der Kachel";
 
-  const layoutBlock = collage
-    ? `<section class="panel">
-        <h2>Layout</h2>
+  const structureBlock = collage
+    ? `<section class="panel" id="layout-controls">
+        <h2>Raster</h2>
+        <p class="hint">Zeilen und Spalten bis 10. Vorlagen setzen das Raster, die Zähler ändern es frei.</p>
         <div class="chips">${PRESETS.map((preset) => {
           const pressed = preset.id === settings.preset ? "true" : "false";
           return `<button type="button" class="chip" data-action="preset" data-value="${preset.id}" aria-pressed="${pressed}">${esc(preset.name)}</button>`;
         }).join("")}</div>
-        <div id="custom-grid" class="grid-steppers" ${settings.preset === "custom" ? "" : "hidden"}>
+        <div id="custom-grid" class="grid-steppers">
           <div class="stepper-field">
             <span>Zeilen</span>
             <div class="stepper">
@@ -135,8 +136,29 @@ export function editorHTML(state) {
             </div>
           </div>
         </div>
-      </section>
-      <section class="panel">
+      </section>`
+    : `<section class="panel" id="layout-controls">
+        <h2>Anordnung</h2>
+        <p class="hint">2–10 Fotos, alle auf dieselbe Kachelgröße. Die Anzahl stellst du mit den Fotos direkt darunter ein.</p>
+        ${segmented(
+          "direction",
+          [
+            { value: "horizontal", label: "Nebeneinander" },
+            { value: "vertical", label: "Untereinander" },
+          ],
+          settings.direction,
+        )}
+        <h3>Kachelformat</h3>
+        ${segmented(
+          "aspect",
+          ASPECTS.map((item) => ({ value: String(item.value), label: item.label })),
+          String(settings.aspect),
+          { compare: (value, current) => aspectPressed(Number(value), Number(current)) },
+        )}
+      </section>`;
+
+  const resolutionBlock = collage
+    ? `<section class="panel">
         <h2>Auflösung</h2>
         ${segmented(
           "resmode",
@@ -154,25 +176,6 @@ export function editorHTML(state) {
         </div>
       </section>`
     : `<section class="panel">
-        <h2>Anordnung</h2>
-        <p class="hint">Alle Kacheln werden auf dieselbe Größe skaliert. Was nicht ins Format passt, wird beschnitten — den Ausschnitt stellst du unten ein.</p>
-        ${segmented(
-          "direction",
-          [
-            { value: "horizontal", label: "Nebeneinander" },
-            { value: "vertical", label: "Untereinander" },
-          ],
-          settings.direction,
-        )}
-        <h3>Kachelformat</h3>
-        ${segmented(
-          "aspect",
-          ASPECTS.map((item) => ({ value: String(item.value), label: item.label })),
-          String(settings.aspect),
-          { compare: (value, current) => aspectPressed(Number(value), Number(current)) },
-        )}
-      </section>
-      <section class="panel">
         <h2>Auflösung</h2>
         ${segmented(
           "resmode",
@@ -191,17 +194,30 @@ export function editorHTML(state) {
         </div>
       </section>`;
 
+  const cellTools = collage
+    ? `<section class="panel" id="cell-tools">
+        <h2>Felder</h2>
+        <p id="cell-label" class="meta-line">Tippe ein Feld in der Vorschau an.</p>
+        <p class="hint">Foto in der Reihe antippen, um es ins gewählte Feld zu legen. Breiter und höher fassen freie Nachbarfelder. Gleichmäßig verteilt die Fotos einer Zeile oder Spalte über die ganze Breite bzw. Höhe, mit demselben Abstand.</p>
+        <div class="cell-actions">
+          <button type="button" class="btn secondary" data-action="span-wider">Breiter</button>
+          <button type="button" class="btn secondary" data-action="span-narrower">Schmaler</button>
+          <button type="button" class="btn secondary" data-action="span-taller">Höher</button>
+          <button type="button" class="btn secondary" data-action="span-shorter">Flacher</button>
+          <button type="button" class="btn secondary" data-action="even-row">Zeile gleichmäßig</button>
+          <button type="button" class="btn secondary" data-action="even-col">Spalte gleichmäßig</button>
+        </div>
+        <button type="button" class="btn ghost" data-action="clear-cell">Feld leeren</button>
+      </section>`
+    : "";
+
   return `${header(title, { back: true })}
     <main class="content editor">
       <div id="messages" class="messages" aria-live="polite"></div>
       <p id="status" class="status" hidden></p>
-      <section class="preview-card">
-        <div class="preview-scroll"><canvas id="preview"></canvas></div>
-        <p id="size-label" class="meta-line"></p>
-        <p id="layout-warning" class="warning" hidden></p>
-      </section>
+      ${structureBlock}
       <section class="panel">
-        <h2>Reihenfolge</h2>
+        <h2>${collage ? "Fotos zuordnen" : "Anzahl und Reihenfolge"}</h2>
         <div id="thumbs" class="thumbs"></div>
         <div class="row-actions">
           <label class="btn secondary">
@@ -211,6 +227,12 @@ export function editorHTML(state) {
           <button type="button" class="btn ghost" data-action="clear-photos">Alle entfernen</button>
         </div>
       </section>
+      <section class="preview-card">
+        <div class="preview-scroll"><canvas id="preview"></canvas></div>
+        <p id="size-label" class="meta-line"></p>
+        <p id="layout-warning" class="warning" hidden></p>
+      </section>
+      ${cellTools}
       <section class="panel">
         <h2>Ausschnitt</h2>
         <p id="crop-label" class="meta-line">Foto</p>
@@ -221,7 +243,7 @@ export function editorHTML(state) {
         </label>
         <button type="button" class="btn ghost" data-action="reset-crop">Ausschnitt zurücksetzen</button>
       </section>
-      ${layoutBlock}
+      ${resolutionBlock}
       <section class="panel">
         <h2>Rahmen</h2>
         <label class="check"><input id="symmetric" type="checkbox" ${settings.symmetric ? "checked" : ""}> Symmetrisch — Außenrahmen und Abstand gleich</label>
@@ -278,8 +300,9 @@ export function editorHTML(state) {
       <section id="result" class="result" hidden></section>
     </main>
     <div class="action-bar">
+      <p id="save-hint" class="hint save-hint" hidden></p>
       <button type="button" class="btn primary" id="export" data-action="export">JPEG sichern</button>
-      <button type="button" class="btn secondary" id="share" data-action="share">Teilen</button>
+      <button type="button" class="btn secondary" id="share" data-action="share">In Fotos sichern</button>
     </div>`;
 }
 
@@ -322,17 +345,28 @@ export function metaOptionsHTML(photos) {
   return { date, gps };
 }
 
-export function resultHTML({ name, exifError, ios }) {
+export function isIosDevice() {
+  return /iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+}
+
+export const IOS_SAVE_HINT =
+  "Safari kann ein Bild nicht lautlos in die Fotos-App schreiben. Tippe „In Fotos sichern“ und im Teilen-Menü „Bild sichern“. Ein reiner Download öffnet auf dem iPhone oft nur die Vorschau.";
+
+export function resultHTML({ name, exifError, ios, shared }) {
   const note = exifError
     ? "Die Metadaten konnten nicht eingebettet werden. Die JPEG-Datei ist ohne EXIF."
     : "Datum und, falls gewählt, der Ort stehen in der JPEG-Datei.";
-  const hint = ios
-    ? "Auf dem iPhone: Teilen antippen und „Bild sichern“ wählen. Ein normaler Download öffnet manchmal nur die Vorschau."
-    : "Die Datei liegt im Download-Ordner.";
+  const hint = ios ? IOS_SAVE_HINT : "Die Datei liegt im Download-Ordner. Teilen legt sie ab, wo dieses System es anbietet.";
+  const sharedNote = shared
+    ? "Das Teilen-Menü war offen. Wenn du „Bild sichern“ gewählt hast, liegt das Foto in der Fotos-App."
+    : "";
   return `<img id="result-img" alt="Exportierte Vorschau">
     <p><strong>${esc(name)}</strong></p>
     <p>${esc(note)}</p>
-    <p class="hint">${esc(hint)}</p>`;
+    <button type="button" class="btn primary" data-action="share">In Fotos sichern</button>
+    <button type="button" class="btn ghost" data-action="download">Datei laden</button>
+    <p class="hint">${esc(hint)}</p>
+    ${sharedNote ? `<p>${esc(sharedNote)}</p>` : ""}`;
 }
 
 export function layoutWarning(layout, count, mode) {
@@ -341,13 +375,19 @@ export function layoutWarning(layout, count, mode) {
     if (count > 10) return "Höchstens 10 Fotos. Entferne bitte die überzähligen.";
     return "";
   }
-  const cells = layout.tiles.length;
+  const slots = layout.tiles.length;
   if (count < 2) return "Mindestens 2 Fotos für eine Collage.";
-  if (count < cells) {
-    return `Layout mit ${cells} Feldern, aber nur ${count} Fotos. Leere Felder bleiben in der Hintergrundfarbe.`;
+  const filled = layout.tiles.filter(
+    (tile) => Number.isInteger(tile.imageIndex) && tile.imageIndex >= 0 && tile.imageIndex < count,
+  ).length;
+  if (filled < slots) {
+    return `Layout mit ${slots} Feldern, davon ${slots - filled} leer. Leere Felder bleiben in der Hintergrundfarbe.`;
   }
-  if (count > cells) {
-    return `Dieses Layout nutzt die ersten ${cells} von ${count} Fotos. Die Reihenfolge bestimmt, welche das sind.`;
+  const used = new Set(
+    layout.tiles.map((tile) => tile.imageIndex).filter((index) => Number.isInteger(index) && index < count),
+  );
+  if (used.size < count) {
+    return `${count - used.size} Fotos liegen noch in keinem Feld. Feld antippen, dann das Foto wählen.`;
   }
   return "";
 }

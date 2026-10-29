@@ -8,7 +8,13 @@ export function drawImageCover(ctx, image, dx, dy, dw, dh, crop) {
   ctx.drawImage(image, sx, sy, sw, sh, dx, dy, dw, dh);
 }
 
-export function renderComposition(ctx, layout, photos, bg, selectedIndex = -1) {
+function tileSelected(tile, selected) {
+  if (selected == null || selected === -1) return false;
+  if (typeof selected === "string") return tile.id === selected;
+  return tile.imageIndex === selected;
+}
+
+export function renderComposition(ctx, layout, photos, bg, selected = -1) {
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.fillStyle = bg || "#ffffff";
@@ -21,7 +27,7 @@ export function renderComposition(ctx, layout, photos, bg, selectedIndex = -1) {
     } else {
       drawImageCover(ctx, photo.image, tile.x, tile.y, tile.w, tile.h, photo.crop);
     }
-    if (tile.imageIndex === selectedIndex && photo?.image) {
+    if (tileSelected(tile, selected)) {
       ctx.save();
       ctx.strokeStyle = "#1f1a17";
       ctx.lineWidth = Math.max(2, Math.round(Math.min(tile.w, tile.h) * 0.012));

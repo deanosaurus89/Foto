@@ -2,8 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   MAX_EDGE,
+  MAX_GRID,
   MAX_PIXELS,
   buildCollageLayout,
+  cellsForPreset,
+  clearCell,
+  evenPackCol,
+  evenPackRow,
+  growCell,
   resolveCollageLayout,
   resolveCombineLayout,
 } from "../src/lib/layout.js";
@@ -131,4 +137,117 @@ test("long-side collage stays inside the requested edge", () => {
   assert.ok(Math.max(layout.width, layout.height) <= 1000);
   assert.equal(layout.tiles.length, 4);
   assert.equal(overlaps(layout), false);
+});
+
+test("custom collage accepts a 10 by 10 grid", () => {
+  const made = cellsForPreset("custom", 10, 10);
+  assert.equal(made.rows, MAX_GRID);
+  assert.equal(made.cols, MAX_GRID);
+  assert.equal(made.cells.length, 100);
+  const layout = resolveCollageLayout({
+    preset: "custom",
+    rows: 10,
+    cols: 10,
+    cells: made.cells,
+    resolutionMode: "cell",
+    cell: 1200,
+    gap: 0,
+    margin: 0,
+    symmetric: true,
+  });
+  assert.equal(layout.cols, 10);
+  assert.equal(layout.rows, 10);
+  assert.equal(layout.tiles.length, 100);
+  assert.equal(layout.limited, true);
+  assert.ok(layout.width <= MAX_EDGE);
+  assert.ok(layout.width * layout.height <= MAX_PIXELS * 1.02);
+});
+
+test("a 2 by 2 block on a 3 by 3 grid keeps even gutters", () => {
+  const made = cellsForPreset("custom", 3, 3);
+  const block = made.cells.find((cell) => cell.col === 0 && cell.row === 0);
+  for (const cell of made.cells.filter((cell) => cell.col < 2 && cell.row < 2 && cell !== block)) {
+    clearCell(made.cells, cell.id);
+  }
+  assert.equal(growCell(made.cells, block.id, "col", 3, 3).ok, true);
+  assert.equal(growCell(made.cells, block.id, "row", 3, 3).ok, true);
+  const layout = buildCollageLayout({
+    rows: 3,
+    cols: 3,
+    cells: made.cells,
+    cell: 100,
+    gap: 10,
+    margin: 10,
+  });
+  const span = layout.tiles.find((tile) => tile.id === block.id);
+  assert.equal(span.w, 210);
+  assert.equal(span.h, 210);
+  const right = layout.tiles.filter((tile) => tile.x === 230).sort((a, b) => a.y - b.y);
+  const bottom = layout.tiles.filter((tile) => tile.y === 230).sort((a, b) => a.x - b.x);
+  assert.equal(right.length, 3);
+  assert.equal(bottom.length, 3);
+  assert.equal(right[0].x - (span.x + span.w), 10);
+  assert.equal(bottom[0].y - (span.y + span.h), 10);
+  assert.equal(overlaps(layout), false);
+});
+
+test("fewer images in a row share the width and the gutter", () => {
+  const made = cellsForPreset("custom", 1, 3);
+  clearCell(made.cells, made.cells[2].id);
+  assert.equal(evenPackRow(made.cells, 0, 3, 1).ok, true);
+  const layout = buildCollageLayout({
+    rows: 1,
+    cols: 3,
+    cells: made.cells,
+    cell: 100,
+    gap: 10,
+    margin: 10,
+  });
+  const tiles = layout.tiles.slice().sort((a, b) => a.x - b.x);
+  assert.equal(tiles.length, 2);
+  assert.equal(tiles[0].w, tiles[1].w);
+  assert.equal(tiles[1].x - (tiles[0].x + tiles[0].w), 10);
+  assert.equal(tiles[0].x, 10);
+  assert.equal(tiles[1].x + tiles[1].w, layout.width - 10);
+});
+
+test("fewer images in a column share the height", () => {
+  const made = cellsForPreset("custom", 3, 1);
+  clearCell(made.cells, made.cells[2].id);
+  assert.equal(evenPackCol(made.cells, 0, 1, 3).ok, true);
+  const layout = buildCollageLayout({
+    rows: 3,
+    cols: 1,
+    cells: made.cells,
+    cell: 100,
+    gap: 10,
+    margin: 10,
+  });
+  const tiles = layout.tiles.slice().sort((a, b) => a.y - b.y);
+  assert.equal(tiles.length, 2);
+  assert.equal(tiles[0].h, tiles[1].h);
+  assert.equal(tiles[1].y - (tiles[0].y + tiles[0].h), 10);
+  assert.equal(tiles[0].y, 10);
+  assert.equal(tiles[1].y + tiles[1].h, layout.height - 10);
+});
+
+test("even packing refuses a row that a tall cell already crosses", () => {
+  const made = cellsForPreset("custom", 3, 3);
+  const block = made.cells.find((cell) => cell.col === 0 && cell.row === 0);
+  clearCell(
+    made.cells,
+    made.cells.find((cell) => cell.col === 1 && cell.row === 0).id,
+  );
+  clearCell(
+    made.cells,
+    made.cells.find((cell) => cell.col === 0 && cell.row === 1).id,
+  );
+  clearCell(
+    made.cells,
+    made.cells.find((cell) => cell.col === 1 && cell.row === 1).id,
+  );
+  growCell(made.cells, block.id, "col", 3, 3);
+  growCell(made.cells, block.id, "row", 3, 3);
+  assert.equal(evenPackRow(made.cells, 0, 3, 3).ok, false);
+  assert.equal(evenPackCol(made.cells, 0, 3, 3).ok, false);
 });
