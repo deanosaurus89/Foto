@@ -13,7 +13,7 @@ Alles läuft im Browser. Es gibt keinen Server, und die Bilder werden nicht hoch
 
 HEIC/HEIF wird gelesen, wenn der Browser es kann (Safari auf dem iPhone). Gelingt das nicht, erscheint ein Hinweis, das Foto in der Fotos-App als JPEG zu sichern. Schreiben von HEIC im Browser ist unzuverlässig, deshalb ist JPEG das Exportformat.
 
-Große Vorlagen werden vor dem Zusammensetzen auf höchstens 3072 Pixel an der langen Seite verkleinert, damit Safari nicht wegen des Speicherbedarfs abbricht. Die Ausgabe selbst ist auf 8192 Pixel Kantenlänge und etwa 24 Megapixel begrenzt.
+Große Vorlagen werden vor dem Zusammensetzen auf höchstens 3072 Pixel an der langen Seite verkleinert, damit Safari nicht wegen des Speicherbedarfs abbricht. Die Ausgabe darf auf der kurzen Seite etwa 6000 Pixel erreichen (lange Seite bis 12000, etwa 72 Megapixel). Darüber kürzt Foto das Bild und zeigt das an.
 
 ## Lokal öffnen
 
@@ -60,6 +60,15 @@ Zielgerät ist das iPhone 15 Pro Max in Safari, Hochformat.
 Danach startet Foto ohne Browser-Leiste. Ein Hinweis auf der Startseite erscheint auf dem iPhone, solange die Seite noch in Safari läuft. Manifest, Service Worker (Offline-Hülle nach dem ersten Laden), Apple-Touch-Icon und ein Startbild für 430×932 pt sind enthalten.
 
 Safari kann die Fotos-App nicht lautlos beschreiben. **In Fotos sichern** öffnet das Teilen-Menü; dort **Bild sichern** tippen. Ein reiner Download öffnet auf dem iPhone oft nur eine Vorschau. Die JPEG-Datei enthält Datum und Ort wie oben gewählt.
+
+## Geplant
+
+Drogerie-Formate (dm, Rewe, Rossmann und ähnliche, etwa 9×13, 10×15, 13×19, 15×20, 20×30 cm) kommen als eigener Schritt, nicht als Ersatz für die jetzige Ausgabe. Zwei getrennte Modi für Streifen und Collage:
+
+- **Einpassen:** Seitenverhältnis bleibt, das Bild sitzt in der Druckfläche, Rest wird mit Weiß oder der Hintergrundfarbe aufgefüllt. Ein Quadrat auf 15×10 cm bekommt also Ränder, es wird nicht beschnitten.
+- **Flächendeckend füllen:** die Druckfläche wird voll ausgefüllt, überschüssiges wird beschnitten.
+
+Die jetzige Ausgabe, die die Fläche selbst bestimmt, bleibt daneben bestehen.
 
 ## Hinweise
 

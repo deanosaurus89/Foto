@@ -371,6 +371,23 @@ test("a merged block slides onto the cells it covers and swaps with another bloc
   assert.equal(again.cells.find((cell) => cell.id === upper.id).imageIndex, upperImage);
 });
 
+test("a square collage can keep a 6000 pixel short side", () => {
+  const layout = resolveCollageLayout({
+    preset: "2x2",
+    rows: 2,
+    cols: 2,
+    resolutionMode: "long",
+    longSide: 6000,
+    cell: 1000,
+    gap: 0,
+    margin: 0,
+    symmetric: true,
+  });
+  assert.equal(layout.limited, false);
+  assert.ok(Math.min(layout.width, layout.height) >= 6000);
+  assert.ok(Math.max(layout.width, layout.height) <= 12000);
+});
+
 test("strip long side is the finished image, not one tile", () => {
   const layout = resolveCombineLayout(
     {

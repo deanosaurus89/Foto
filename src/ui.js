@@ -153,12 +153,12 @@ export function editorHTML(state) {
 
   const resolutionBlock = `<section class="panel">
         <h2>Ausgabe</h2>
-        <p class="hint">Lange Seite des fertigen Bildes. Die Kacheln teilen sich diese Größe.</p>
+        <p class="hint">Lange Seite des fertigen Bildes. Die kurze Seite kann für den Druck bis etwa 6000 Pixel gehen. Die Kacheln teilen sich diese Größe.</p>
         <label class="field" for="resolution"><span id="res-label">Lange Seite</span>
-          <input id="resolution" inputmode="numeric" type="number" min="256" max="8192" value="${resValue}">
+          <input id="resolution" inputmode="numeric" type="number" min="256" max="12000" value="${resValue}">
         </label>
         <div class="chips">
-          ${[1920, 2560, 3072, 4032].map((n) => `<button type="button" class="chip" data-action="res-chip" data-value="${n}">${n}</button>`).join("")}
+          ${[3072, 6000, 8192, 12000].map((n) => `<button type="button" class="chip" data-action="res-chip" data-value="${n}">${n}</button>`).join("")}
         </div>
       </section>`;
 
@@ -278,16 +278,17 @@ export function messagesHTML(messages) {
 }
 
 export function compactThumbHTML(photo, index, { selected, placed }) {
-  return `<button type="button" class="compact-thumb${selected ? " selected" : ""}${placed ? "" : " idle"}" data-action="select" data-index="${index}" data-drag="photo" aria-label="${esc(photo.name)}">
+  return `<button type="button" class="compact-thumb${selected ? " selected" : ""} ${placed ? "placed" : "idle"}" data-action="select" data-index="${index}" data-drag="photo" aria-label="${esc(photo.name)}, ${placed ? "im Raster" : "noch frei"}">
     <canvas class="thumb-canvas" data-index="${index}" width="112" height="112"></canvas>
+    ${placed ? `<span class="thumb-check" aria-hidden="true">✓</span>` : `<span class="thumb-free">frei</span>`}
   </button>`;
 }
 
 export function thumbHTML(photo, index, { selected, unused }) {
-  return `<div class="thumb${selected ? " selected" : ""}">
+  return `<div class="thumb${selected ? " selected" : ""} ${unused ? "unused" : "placed"}">
     <button type="button" class="thumb-pick" data-action="select" data-index="${index}" aria-pressed="${selected ? "true" : "false"}">
       <canvas class="thumb-canvas" data-index="${index}" width="148" height="148"></canvas>
-      ${unused ? `<span class="badge">nicht im Layout</span>` : ""}
+      ${unused ? `<span class="badge">frei</span>` : `<span class="thumb-check" aria-hidden="true">✓</span>`}
       <span class="thumb-name">${index + 1}. ${esc(photo.name)}</span>
     </button>
     <div class="thumb-actions">
